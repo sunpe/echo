@@ -1,0 +1,12 @@
+[
+    {
+        "caption": "echo: Chat with Agent",
+        "command": "echo_chat_add_context",
+        "args": {"files": [], "dirs": []}
+    },
+    {
+        "caption": "echo: Set Working Directory",
+        "command": "echo_chat_set_workspace",
+        "args": {"files": [], "dirs": []}
+    }
+]

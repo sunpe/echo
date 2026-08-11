@@ -1,0 +1,12 @@
+"""Echo-owned Sublime setting keys."""
+
+ECHO_VIEW_FLAG = "echo_chat"
+ECHO_WORKSPACE = "echo_active_workspace"
+ECHO_SESSION_ID = "echo_session_id"
+ECHO_INPUT_START = "echo_input_start"
+ECHO_MODEL = "echo_model"
+ECHO_PLAN_MODE = "echo_plan_mode"
+ECHO_APPROVE_MODE = "echo_approve_mode"
+ECHO_CONNECTION_STATE = "echo_connection_state"
+ECHO_PLAN_REQUEST_ID = "echo_plan_request_id"
+ECHO_DIFF_VIEW_PATH = "echo_artifact_diff_path"

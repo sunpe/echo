@@ -1,0 +1,71 @@
+%YAML 1.2
+---
+name: echo chat
+hidden: true
+scope: text.html.markdown.echo-conversation
+version: 2
+
+variables:
+  file_position: '#L\d+(?:-L\d+)?'
+
+contexts:
+  main:
+    - include: turn-markers
+    - include: change-summaries
+    - include: tool-events
+    - include: system-events
+    - include: scope:text.html.markdown#markdown
+
+  turn-markers:
+    - match: '^(●)$'
+      captures:
+        1: punctuation.definition.turn.echo
+
+  change-summaries:
+    - match: '^(▣)(\s+)(\d+)(\s+)(files? changed)$'
+      captures:
+        1: punctuation.definition.changes.echo
+        3: constant.numeric.change-count.echo
+        5: entity.name.section.changes.echo
+      push: changed-files
+
+  changed-files:
+    - meta_scope: meta.block.changed-files.echo
+    - match: '^(\s{4})(.+?)(\s{2,})(\+\d+)(\s+)(-\d+)\s*$'
+      captures:
+        2: entity.name.filename.echo
+        4: markup.inserted.diff
+        6: markup.deleted.diff
+    - match: '^(\s{4})(\S.*)$'
+      captures:
+        2: entity.name.filename.echo
+    - match: '^(?!\s{4})'
+      pop: true
+
+  tool-events:
+    - match: '^(⏺)(\s+)(fileChange)(\s+)(.+?)({{file_position}})?$'
+      captures:
+        1: punctuation.definition.tool.echo
+        3: support.function.tool.echo
+        5: entity.name.filename.echo
+        6: constant.numeric.line-reference.echo
+    - match: '^(⏺)(\s+)(command)(?:\s+)(\(.*\))$'
+      captures:
+        1: punctuation.definition.tool.echo
+        3: support.function.tool.echo
+        4: string.unquoted.command.echo
+    - match: '^(⏺)(\s+)([^\s]+)(?:\s+)(.*)$'
+      captures:
+        1: punctuation.definition.tool.echo
+        3: support.function.tool.echo
+        4: meta.tool-detail.echo
+    - match: '^(⏺)(?:\s+)([^\s]+)$'
+      captures:
+        1: punctuation.definition.tool.echo
+        2: support.function.tool.echo
+
+  system-events:
+    - match: '^(■)(\s+)(.+)$'
+      captures:
+        1: punctuation.definition.system-event.echo
+        3: comment.line.event.echo

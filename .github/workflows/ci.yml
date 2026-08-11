@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit and package tests
+        run: |
+          PYTHONPATH=. python -m unittest discover -s test/providers -t . -p 'test_*.py'
+          PYTHONPATH=. python -m unittest discover -s test/sublime_adapter -t . -p 'test_*.py'
+          PYTHONPATH=. python -m unittest discover -s test/scripts -t . -p 'test_*.py'
+      - name: Release checks
+        run: |
+          python -m compileall -q application domain providers runtime shared \
+            sublime_adapter transport workspace
+          python scripts/release_check.py
+          python scripts/build_package.py dist/echo.sublime-package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: echo-sublime-package-py${{ matrix.python-version }}
+          path: dist/echo.sublime-package

@@ -1,0 +1,42 @@
+%YAML 1.2
+---
+name: Echo Change Review
+hidden: true
+scope: source.diff.echo-review
+version: 2
+
+extends: Packages/Diff/Diff.sublime-syntax
+
+contexts:
+  diff-header:
+    - meta_prepend: true
+    - match: '^(diff)(\s+)([ab]/)(\S+)(\s+)([ab]/)(\S+)$'
+      captures:
+        1: keyword.control.diff.echo
+        3: punctuation.definition.path.diff.echo
+        4: entity.name.filename.echo
+        6: punctuation.definition.path.diff.echo
+        7: entity.name.filename.echo
+
+  diff-header-unified-from-file:
+    - meta_prepend: true
+    - match: '([ab]/)([^\t\n]+)'
+      captures:
+        1: punctuation.definition.path.diff.echo
+        2: entity.name.filename.echo
+
+  diff-header-unified-to-file:
+    - meta_prepend: true
+    - match: '([ab]/)([^\t\n]+)'
+      captures:
+        1: punctuation.definition.path.diff.echo
+        2: entity.name.filename.echo
+
+  line-range-span:
+    - match: '(\d+)(,)(\d+)'
+      captures:
+        1: constant.numeric.line-number.echo
+        2: punctuation.separator.sequence.diff
+        3: constant.numeric.line-count.echo
+    - match: '\d+'
+      scope: constant.numeric.line-number.echo

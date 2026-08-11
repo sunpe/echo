@@ -1,0 +1,50 @@
+[
+    {
+        "caption": "echo: new chat",
+        "command": "echo_chat_cli"
+    },
+    {
+        "caption": "echo: resume chat...",
+        "command": "echo_chat_resume_session"
+    },
+    {
+        "caption": "echo: send prompt...",
+        "command": "echo_chat_prompt"
+    },
+    {
+        "caption": "echo: interrupt current turn",
+        "command": "echo_chat_interrupt"
+    },
+    {
+        "caption": "echo: clear current session",
+        "command": "echo_chat_clear_session"
+    },
+    {
+        "caption": "echo: move chat to right",
+        "command": "echo_chat_split_chat"
+    },
+    {
+        "caption": "echo: set model...",
+        "command": "echo_chat_set_model"
+    },
+    {
+        "caption": "echo: set approval mode...",
+        "command": "echo_chat_set_approve_mode"
+    },
+    {
+        "caption": "echo: plan mode",
+        "command": "echo_chat_toggle_plan_mode"
+    },
+    {
+        "caption": "echo: set working directory...",
+        "command": "echo_chat_set_workspace_input"
+    },
+    {
+        "caption": "echo: edit settings",
+        "command": "echo_edit_settings"
+    },
+    {
+        "caption": "echo: set key bindings",
+        "command": "echo_edit_key_bindings"
+    }
+]

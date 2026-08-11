@@ -1,0 +1,102 @@
+[
+    {
+        "caption": "echo",
+        "mnemonic": "E",
+        "id": "echo-workspace",
+        "children": [
+            {
+                "caption": "new chat",
+                "command": "echo_chat_cli"
+            },
+            {
+                "caption": "resume chat...",
+                "command": "echo_chat_resume_session"
+            },
+            {
+                "caption": "send prompt...",
+                "command": "echo_chat_prompt"
+            },
+            {
+                "caption": "-"
+            },
+            {
+                "caption": "chat",
+                "children": [
+                    {
+                        "caption": "interrupt current turn",
+                        "command": "echo_chat_interrupt"
+                    },
+                    {
+                        "caption": "move chat to right",
+                        "command": "echo_chat_split_chat"
+                    },
+                    {
+                        "caption": "clear session",
+                        "command": "echo_chat_clear_session"
+                    }
+                ]
+            },
+            {
+                "caption": "runtime",
+                "children": [
+                    {
+                        "caption": "set model...",
+                        "command": "echo_chat_set_model"
+                    },
+                    {
+                        "caption": "set approval mode...",
+                        "command": "echo_chat_set_approve_mode"
+                    },
+                    {
+                        "caption": "plan mode",
+                        "command": "echo_chat_toggle_plan_mode"
+                    }
+                ]
+            },
+            {
+                "caption": "workspace",
+                "children": [
+                    {
+                        "caption": "set working directory...",
+                        "command": "echo_chat_set_workspace_input"
+                    }
+                ]
+            },
+            {
+                "caption": "-"
+            },
+            {
+                "caption": "edit settings",
+                "command": "echo_edit_settings"
+            },
+            {
+                "caption": "set key bindings",
+                "command": "echo_edit_key_bindings"
+            }
+        ]
+    },
+    {
+        "id": "preferences",
+        "children": [
+            {
+                "id": "package-settings",
+                "children": [
+                    {
+                        "caption": "Echo",
+                        "id": "echo-package-settings",
+                        "children": [
+                            {
+                                "caption": "Settings",
+                                "command": "echo_edit_settings"
+                            },
+                            {
+                                "caption": "Key Bindings",
+                                "command": "echo_edit_key_bindings"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]

@@ -1,0 +1,8 @@
+[
+    { "caption": "-" },
+    {
+        "caption": "echo: Move Chat to Right",
+        "command": "echo_chat_split_chat",
+        "args": {"group": "$group", "index": "$index"}
+    }
+]

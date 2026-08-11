@@ -1,0 +1,16 @@
+[
+    {
+        "keys": ["ctrl+enter"],
+        "command": "echo_chat_send_input",
+        "context": [
+            { "key": "setting.echo_chat", "operator": "equal", "operand": true }
+        ]
+    },
+    {
+        "keys": ["shift+escape"],
+        "command": "echo_chat_interrupt",
+        "context": [
+            { "key": "setting.echo_chat", "operator": "equal", "operand": true }
+        ]
+    }
+]

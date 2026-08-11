@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a reproducible Echo problem.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, employee identifiers, private prompts, or workspace contents. Use private vulnerability reporting for security issues.
+  - type: input
+    id: version
+    attributes:
+      label: Echo version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Sublime Text version, OS, provider, and provider version.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true

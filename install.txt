@@ -1,0 +1,34 @@
+echo for Sublime Text
+=========================
+
+Thank you for installing echo.
+
+echo connects Sublime Text to a user-managed Codex app-server over
+WebSocket. The app-server may run locally or remotely; project files remain in
+Sublime and are exposed through protected local_workspace tools.
+
+Getting Started
+---------------
+
+1. Start a local server:
+
+   codex app-server --listen ws://127.0.0.1:4500
+
+2. Keep the default providers.codex.app_server.url, or configure a remote
+   wss:// address in
+   echo settings.
+
+3. Open the command palette and run "echo: Start Chat".
+
+echo does not start or stop app-server automatically. Non-loopback servers
+must use WSS. Authentication tokens are read from the configured environment
+variable, never from the settings file.
+
+Only project data requested through local_workspace tools is sent to Codex or
+Pi. echo does not collect telemetry or upload the entire workspace to an echo
+server. When using a remote Codex app-server, the requested data is sent to
+that server according to the user's configuration.
+
+Codex and Pi are separate tools installed and authenticated by the user.
+Their services, data retention, and terms are governed by their respective
+providers. See README.md for configuration and security details.
