@@ -1,7 +1,6 @@
 import sys
 import unittest
-from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 
@@ -17,10 +16,6 @@ sys.modules.setdefault(
         WindowCommand=object,
     ),
 )
-package = ModuleType("echo")
-package.__path__ = [str(Path(__file__).resolve().parents[2])]
-sys.modules["echo"] = package
-
 from echo.sublime_adapter.presentation.chat_view import ChatSession
 from echo.sublime_adapter.presentation.ui_components import (
     CHAT_CONNECTION_STATE,

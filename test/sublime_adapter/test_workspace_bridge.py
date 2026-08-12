@@ -75,6 +75,12 @@ class FakeWindow:
 
 
 class WorkspaceBridgeTest(unittest.IsolatedAsyncioTestCase):
+    def test_package_root_keeps_loaded_adapter_attribute(self):
+        import echo
+        import echo.sublime_adapter
+
+        self.assertIs(echo.sublime_adapter, sys.modules["echo.sublime_adapter"])
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = self.temporary.name
