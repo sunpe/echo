@@ -3,9 +3,7 @@
 
 class PromptHistory:
     def __init__(self):
-        self._items = []
-        self._cursor = 0
-        self._draft = ""
+        self._items, self._cursor, self._draft = [], 0, ""
 
     def record(self, text):
         self._items.append(text)

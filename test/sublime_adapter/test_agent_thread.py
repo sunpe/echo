@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 sys.modules.setdefault("sublime", MagicMock())
 
 from echo.runtime.provider_worker import ProviderWorker
-from echo.domain.conversation.input_buffer import StartupInputBuffer
+from echo.runtime.operation_mailbox import OperationMailbox, ProviderOperation
 from echo.runtime.session_store import create_chat_session, register_chat_session_type
 
 
@@ -36,17 +36,20 @@ class ProviderWorkerInputTest(unittest.TestCase):
         self.assertEqual("echo", session.name)
 
     def test_inputs_sent_during_startup_are_drained_in_order(self):
-        buffer = StartupInputBuffer()
-        buffer.send("first")
-        buffer.send("second")
+        mailbox = OperationMailbox()
+        first = ProviderOperation("send_message", ("first",))
+        second = ProviderOperation("send_message", ("second",))
+        third = ProviderOperation("send_message", ("third",))
+        mailbox.offer(first)
+        mailbox.offer(second)
 
         loop = FakeLoop()
         queue = FakeQueue()
-        buffer.activate(loop, queue)
-        buffer.send("third")
+        mailbox.attach(loop, queue)
+        mailbox.offer(third)
 
-        self.assertEqual(["first", "second", "third"], queue.items)
-        self.assertEqual([], buffer.pending)
+        self.assertEqual([first, second, third], queue.items)
+        self.assertEqual([], mailbox.pending)
 
     def test_runtime_config_is_applied_on_agent_loop(self):
         loop = FakeLoop()
@@ -61,6 +64,9 @@ class ProviderWorkerInputTest(unittest.TestCase):
 
         thread.reconfigure(plan_mode=True, model="gpt-test")
 
+        operation = thread._operations.pending[0]
+        asyncio.run(thread._perform(operation))
+
         self.assertTrue(agent.plan_mode)
         self.assertEqual("gpt-test", agent.model)
         self.assertEqual(True, thread.agent_config["plan_mode"])
@@ -70,7 +76,7 @@ class ProviderWorkerInputTest(unittest.TestCase):
         thread.running = False
 
         self.assertFalse(thread.enqueue("ignored"))
-        self.assertEqual([], thread._startup_inputs.pending)
+        self.assertEqual([], thread._operations.pending)
 
 
 class ProviderWorkerLifecycleTest(unittest.IsolatedAsyncioTestCase):
@@ -138,7 +144,9 @@ class ProviderWorkerLifecycleTest(unittest.IsolatedAsyncioTestCase):
         )
         loop = asyncio.get_running_loop()
         thread._activate(loop, asyncio.Queue())
-        thread.input_queue.put_nowait("hello")
+        thread.operation_queue.put_nowait(ProviderOperation(
+            "send_message", ("hello",), label="message", fatal=True,
+        ))
 
         with patch(
             "echo.runtime.provider_worker.create_agent",
@@ -152,8 +160,8 @@ class ProviderWorkerLifecycleTest(unittest.IsolatedAsyncioTestCase):
         thread.agent = SimpleNamespace(set_plan_mode=AsyncMock())
 
         thread.reconfigure(plan_mode=True)
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        operation = await thread.operation_queue.get()
+        await thread._perform(operation)
 
         thread.agent.set_plan_mode.assert_awaited_once_with(True)
 
@@ -180,6 +188,23 @@ class ProviderWorkerLifecycleTest(unittest.IsolatedAsyncioTestCase):
                 RuntimeError, "Pi process exited with code 2: fatal"
             ):
                 await thread._serve()
+
+    async def test_rewind_failure_still_invokes_the_fork_callback(self):
+        thread = self._configured_worker()
+        thread.agent = SimpleNamespace(rewind=AsyncMock(
+            side_effect=RuntimeError("rewind failed")
+        ))
+
+        results = []
+        thread.fork("message-1", on_done=results.append)
+        operation = await thread.operation_queue.get()
+        with patch(
+            "echo.runtime.provider_worker.sublime.set_timeout",
+            side_effect=lambda fn, _delay: fn(),
+        ):
+            await thread._dispatch_operation(operation)
+
+        self.assertEqual([None], results)
 
     async def test_intentional_stop_accepts_a_closed_event_stream(self):
         class EndedAgent:

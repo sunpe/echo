@@ -53,7 +53,10 @@ class PiAgent(BaseAgent):
         self.is_connected = False
         self._read_task = None
         self._stderr_task = None
-        self._messages = asyncio.Queue()
+        # asyncio.Queue binds to the current loop on Python 3.8. Agent objects
+        # are also constructed by synchronous Sublime commands, so create the
+        # queue only after entering an async lifecycle method.
+        self._messages = None
         self._messages_closed = False
         self.stream_end_reason = None
         self._stderr_tail = []
@@ -107,6 +110,11 @@ class PiAgent(BaseAgent):
         self._set_state('ready')
         if prompt:
             await self.send_message(prompt)
+
+    def _message_queue(self):
+        if self._messages is None:
+            self._messages = asyncio.Queue()
+        return self._messages
 
     async def _transmit(self, payload: Dict[str, Any]) -> None:
         stream = self.process.stdin if self.process else None
@@ -219,7 +227,7 @@ class PiAgent(BaseAgent):
             return
         self._session_id = session_id
         self.options.session_id = session_id
-        await self._messages.put(Message(
+        await self._message_queue().put(Message(
             "thread_started", content={"session_id": session_id}
         ))
 
@@ -241,7 +249,7 @@ class PiAgent(BaseAgent):
                     LOG.warning("Ignoring invalid Pi message: %s", exc)
                     continue
                 if message:
-                    await self._messages.put(message)
+                    await self._message_queue().put(message)
         except asyncio.CancelledError:
             pass
         except Exception as exc:
@@ -265,7 +273,7 @@ class PiAgent(BaseAgent):
         if self._messages_closed:
             return
         self._messages_closed = True
-        await self._messages.put(_MESSAGE_STREAM_END)
+        await self._message_queue().put(_MESSAGE_STREAM_END)
 
     async def _read_stderr(self) -> None:
         try:
@@ -281,8 +289,9 @@ class PiAgent(BaseAgent):
             pass
 
     async def receive_messages(self) -> AsyncIterator[Message]:
+        messages = self._message_queue()
         while True:
-            message = await self._messages.get()
+            message = await messages.get()
             if message is _MESSAGE_STREAM_END:
                 if self.stream_end_reason:
                     raise RuntimeError(self.stream_end_reason)

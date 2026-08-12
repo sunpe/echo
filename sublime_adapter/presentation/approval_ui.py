@@ -104,11 +104,8 @@ class ApprovalCard:
 
 class ApprovalPanel:
     def __init__(self, view, window, on_action):
-        self.view = view
-        self.window = window
-        self._on_action = on_action
-        self._cards = {}
-        self._previews = {}
+        self.view, self.window = view, window
+        self._on_action, self._cards, self._previews = on_action, {}, {}
 
     def show(self, request_id, tool, arguments, approve_mode=None):
         content = ApprovalCard.content(tool, arguments)

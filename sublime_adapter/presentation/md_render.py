@@ -140,8 +140,8 @@ class MarkdownFormatter:
     @staticmethod
     def _table_style():
         try:
-            return sublime.load_settings("echo.sublime-settings").get(
-                "table_style", "bordered"
-            )
+            preferences = sublime.load_settings("echo.sublime-settings")
+            selected = preferences.get("table_style")
         except Exception:
-            return "bordered"
+            selected = None
+        return selected or "bordered"

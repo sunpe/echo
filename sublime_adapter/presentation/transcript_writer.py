@@ -2,6 +2,7 @@
 
 import os
 import re
+from functools import partial
 
 import sublime
 
@@ -9,6 +10,21 @@ from .md_render import MarkdownFormatter
 
 
 _HUNK_START = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)", re.MULTILINE)
+
+
+class TranscriptSurface:
+    """Serialize transcript mutations onto Sublime's UI thread."""
+
+    def __init__(self, view):
+        self._view = view
+
+    def append(self, text):
+        if text:
+            sublime.set_timeout(partial(self._commit, text), 0)
+
+    def _commit(self, text):
+        command, arguments = "echo_chat_output_append", {"text": text}
+        self._view.run_command(command, arguments)
 
 
 class ToolTranscript:
@@ -57,11 +73,14 @@ class ToolTranscript:
 
 class TranscriptWriter:
     def __init__(self, session):
-        self._session = session
+        self._cwd_provider = lambda: getattr(
+            getattr(session, "agent_thread", None), "cwd", None
+        ) or getattr(session, "cwd", "")
+        self._surface = TranscriptSurface(session.chat_view)
         self._markdown = MarkdownFormatter()
         self._reply_open = False
         self._last_was_tool = False
-        self.tools = ToolTranscript(self._cwd)
+        self.tools = ToolTranscript(self._cwd_provider)
 
     def reset_turn(self):
         self._reply_open = False
@@ -73,22 +92,10 @@ class TranscriptWriter:
 
     def write(self, text, flush=False):
         rendered = self._markdown.format(text, flush=flush)
-        if rendered:
-            sublime.set_timeout(
-                lambda: self._session.chat_view.run_command(
-                    "echo_chat_output_append", {"text": rendered}
-                ),
-                0,
-            )
+        self._surface.append(rendered)
 
     def error(self, detail):
-        sublime.set_timeout(
-            lambda: self._session.chat_view.run_command(
-                "echo_chat_output_append",
-                {"text": "\n\nError: {}\n".format(detail)},
-            ),
-            0,
-        )
+        self._surface.append("\n\nError: {}\n".format(detail))
 
     def assistant(self, blocks):
         pieces = [block.text for block in blocks if hasattr(block, "text")]
@@ -109,7 +116,3 @@ class TranscriptWriter:
     def finish(self):
         self.write("", flush=True)
         self.write("\n")
-
-    def _cwd(self):
-        worker = getattr(self._session, "agent_thread", None)
-        return getattr(worker, "cwd", None) or getattr(self._session, "cwd", "")

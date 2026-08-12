@@ -8,7 +8,7 @@
         "command": "echo_chat_resume_session"
     },
     {
-        "caption": "echo: send prompt...",
+        "caption": "echo: send message...",
         "command": "echo_chat_prompt"
     },
     {
@@ -16,7 +16,7 @@
         "command": "echo_chat_interrupt"
     },
     {
-        "caption": "echo: clear current session",
+        "caption": "echo: reset current session",
         "command": "echo_chat_clear_session"
     },
     {
@@ -40,11 +40,11 @@
         "command": "echo_chat_set_workspace_input"
     },
     {
-        "caption": "echo: edit settings",
+        "caption": "echo: open settings",
         "command": "echo_edit_settings"
     },
     {
-        "caption": "echo: set key bindings",
+        "caption": "echo: key bindings",
         "command": "echo_edit_key_bindings"
     }
 ]

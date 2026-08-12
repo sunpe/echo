@@ -11,7 +11,7 @@ from ..domain.messages.message import Message
 from ..domain.ports.workspace import DEFAULT_CONFIRM_TOOLS
 from ..providers import build_agent_options, create_agent
 from ..workspace import DEFAULT_ENABLED_TOOLS, dynamic_tool_specs
-from ..domain.conversation.input_buffer import StartupInputBuffer
+from .operation_mailbox import OperationMailbox, ProviderOperation
 
 
 LOG = logging.getLogger("echo")
@@ -28,9 +28,9 @@ class ProviderWorker(threading.Thread):
         self.local_tool_handler = local_tool_handler
         self.loop = None
         self.agent = None
-        self.input_queue = None
+        self.operation_queue = None
         self._stop_signal = None
-        self._startup_inputs = StartupInputBuffer()
+        self._operations = OperationMailbox()
         self.running = True
         self._intentional_stop = False
 
@@ -47,7 +47,7 @@ class ProviderWorker(threading.Thread):
         finally:
             self.running = False
             self.agent = None
-            self.input_queue = None
+            self.operation_queue = None
             self._stop_signal = None
             self.loop = None
         if failure is not None and not self._intentional_stop:
@@ -58,14 +58,14 @@ class ProviderWorker(threading.Thread):
             self._publish(("error", detail), force=True)
 
     async def _serve(self):
-        if self.input_queue is None:
+        if self.operation_queue is None:
             self._activate(asyncio.get_running_loop(), asyncio.Queue())
         provider = self.agent_config.get("provider")
         async with create_agent(provider, self._build_options(provider)) as agent:
             self.agent = agent
             self._publish(Message("connection_state", {"state": "ready"}))
             jobs = {
-                "input": asyncio.create_task(self._pump_input()),
+                "operations": asyncio.create_task(self._dispatch_operations()),
                 "events": asyncio.create_task(self._pump_events()),
                 "stop": asyncio.create_task(self._stop_signal.wait()),
             }
@@ -92,7 +92,7 @@ class ProviderWorker(threading.Thread):
                             provider or "configured"
                         )
                     ))
-                raise RuntimeError("Provider input loop stopped unexpectedly")
+                raise RuntimeError("Provider operation dispatcher stopped unexpectedly")
             finally:
                 for task in jobs.values():
                     if not task.done():
@@ -101,11 +101,11 @@ class ProviderWorker(threading.Thread):
 
     def _activate(self, loop, queue):
         self.loop = loop
-        self.input_queue = queue
+        self.operation_queue = queue
         self._stop_signal = asyncio.Event()
         if not self.running:
             self._stop_signal.set()
-        self._startup_inputs.activate(loop, queue)
+        self._operations.attach(loop, queue)
 
     def _build_options(self, provider):
         local = self.agent_config.get("local_tools") or {}
@@ -146,11 +146,50 @@ class ProviderWorker(threading.Thread):
     def _connection_changed(self, state, detail):
         self._publish(Message("connection_state", {"state": state, "detail": detail}))
 
-    async def _pump_input(self):
+    async def _dispatch_operations(self):
         while self.running:
-            prompt = await self.input_queue.get()
-            if prompt:
-                await self.agent.send_message(prompt)
+            operation = await self.operation_queue.get()
+            await self._dispatch_operation(operation)
+
+    async def _dispatch_operation(self, operation):
+        try:
+            result = await self._perform(operation)
+        except Exception as error:
+            if operation.fatal:
+                raise
+            LOG.error("Provider %s failed: %s", operation.label, error)
+            self._publish(("error", str(error)))
+            # Never strand callers awaiting a result: report failure as None.
+            if operation.callback:
+                sublime.set_timeout(lambda: operation.callback(None), 0)
+        else:
+            self._complete(operation, result)
+
+    async def _perform(self, operation):
+        if operation.method == "configure":
+            return await self._apply_configuration(operation.keywords)
+        method = getattr(self.agent, operation.method)
+        result = method(*operation.arguments, **operation.keywords)
+        return await result if inspect.isawaitable(result) else result
+
+    async def _apply_configuration(self, changes):
+        if "plan_mode" in changes:
+            setter = getattr(self.agent, "set_plan_mode", None)
+            if setter is None:
+                self.agent.plan_mode = changes["plan_mode"]
+            else:
+                result = setter(changes["plan_mode"])
+                if inspect.isawaitable(result):
+                    await result
+        if "model" in changes:
+            result = self.agent.set_model(changes["model"])
+            if inspect.isawaitable(result):
+                await result
+
+    @staticmethod
+    def _complete(operation, result):
+        if operation.callback:
+            sublime.set_timeout(lambda: operation.callback(result), 0)
 
     async def _pump_events(self):
         async for event in self.agent.receive_messages():
@@ -159,62 +198,49 @@ class ProviderWorker(threading.Thread):
             self._publish(event)
 
     def enqueue(self, text):
-        if not self.running:
-            return False
-        self._startup_inputs.send(text)
-        return True
+        return self._offer(ProviderOperation(
+            "send_message", (text,), label="message", fatal=True,
+        ))
 
     def steer(self, text, proceed_plan=False):
-        return self._submit(
-            self.agent.steer(text, proceed_plan=proceed_plan) if self.agent else None,
-            "steer",
-        )
+        return self._offer(ProviderOperation(
+            "steer", (text,), {"proceed_plan": proceed_plan}, "steer",
+        ))
 
     def cancel_turn(self):
-        return self._submit(self.agent.interrupt() if self.agent else None, "interrupt")
+        return self._offer(ProviderOperation("interrupt", label="interrupt"))
 
     def fork(self, message_id, on_done=None):
-        async def operation():
-            fork_id = None
-            try:
-                if self.agent and hasattr(self.agent, "rewind"):
-                    fork_id = await self.agent.rewind(message_id)
-            except Exception:
-                LOG.exception("Provider conversation fork failed")
-            if on_done:
-                sublime.set_timeout(lambda: on_done(fork_id), 0)
-        if not self._submit(operation(), "fork") and on_done:
+        operation = ProviderOperation(
+            "rewind", (message_id,), label="fork", callback=on_done,
+        )
+        if not self._offer(operation) and on_done:
             sublime.set_timeout(lambda: on_done(None), 0)
 
     def reply_approval(self, request_id, response):
         if self.agent is None or not hasattr(self.agent, "send_approval_response"):
             return False
-        return self._submit(
-            self.agent.send_approval_response(request_id, response), "approval"
-        )
+        return self._offer(ProviderOperation(
+            "send_approval_response", (request_id, response), label="approval",
+        ))
 
     def reconfigure(self, **changes):
         self.agent_config.update(changes)
         if self.agent is None or self.loop is None:
             return
-        def apply():
-            if "plan_mode" in changes:
-                setter = getattr(self.agent, "set_plan_mode", None)
-                result = setter(changes["plan_mode"]) if setter else None
-                if setter is None:
-                    self.agent.plan_mode = changes["plan_mode"]
-                if inspect.isawaitable(result):
-                    self.loop.create_task(result)
-            if "model" in changes:
-                result = self.agent.set_model(changes["model"])
-                if inspect.isawaitable(result):
-                    self.loop.create_task(result)
-        self.loop.call_soon_threadsafe(apply)
+        self._offer(ProviderOperation(
+            "configure", keywords=dict(changes), label="reconfigure",
+        ))
 
     @property
     def session_id(self):
-        live = getattr(self.agent, "_session_id", None) or getattr(self.agent, "thread_id", None)
-        return live or self.agent_config.get("session_id")
+        agent = self.agent
+        identifiers = (
+            getattr(agent, "_session_id", None),
+            getattr(agent, "thread_id", None),
+            self.agent_config.get("session_id"),
+        )
+        return next((value for value in identifiers if value), None)
 
     def stop(self):
         self._intentional_stop = True
@@ -222,24 +248,10 @@ class ProviderWorker(threading.Thread):
         if self.loop is not None and self._stop_signal is not None:
             self.loop.call_soon_threadsafe(self._stop_signal.set)
 
-    def _submit(self, coroutine, label):
-        if coroutine is None or not self.running or self.loop is None:
-            if coroutine is not None:
-                coroutine.close()
+    def _offer(self, operation):
+        if not self.running:
             return False
-        try:
-            future = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
-        except RuntimeError:
-            coroutine.close()
-            return False
-        def complete(result):
-            if result.cancelled() or not self.running:
-                return
-            error = result.exception()
-            if error:
-                LOG.error("Provider %s failed: %s", label, error)
-                self._publish(("error", str(error)))
-        future.add_done_callback(complete)
+        self._operations.offer(operation)
         return True
 
     def _publish(self, event, force=False):

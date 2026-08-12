@@ -10,10 +10,10 @@ import sublime_plugin
 from ..providers import (
     ProviderConfigurationError,
     list_provider_sessions,
-    normalize_provider_model,
     provider_identity,
     resolve_provider,
 )
+from .session_preferences import SessionPreferences
 from ..workspace.context_composer import path_context
 from ..sublime_adapter.editor_router import EditorRouter
 from ..sublime_adapter.layout import place_in_dedicated_pane
@@ -298,7 +298,8 @@ class EchoChatSetWorkspaceCommand(sublime_plugin.WindowCommand):
         sublime.status_message("Echo workspace: {}".format(target))
 
     def is_visible(self, files=[], dirs=[]):
-        return any((files, dirs))
+        selection = tuple(files) + tuple(dirs)
+        return bool(selection)
 
 
 class EchoChatClearSessionCommand(sublime_plugin.WindowCommand):
@@ -551,22 +552,7 @@ class EchoChatSetModelCommand(sublime_plugin.WindowCommand):
     Sets the model for Echo sessions in the current window.
     """
     def run(self, model):
-        model = normalize_provider_model(model)
-        if model:
-            self.window.settings().set(CHAT_MODEL, model)
-        else:
-            self.window.settings().erase(CHAT_MODEL)
-        sublime.status_message(
-            f"{PACKAGE_NAME} model set to: {model or 'default'}"
-        )
-
-        # Update the model phantom if session exists
-        session = EchoWindowContext(self.window).session
-        if session is not None:
-            session.model_phantom.update()
-            # Update the running agent directly
-            if session.agent_thread:
-                session.agent_thread.reconfigure(model=model)
+        SessionPreferences(self.window).select_model(model)
 
     def input(self, args):
         session = _session_for(self.window)
@@ -624,20 +610,7 @@ class EchoChatApproveModeInputHandler(_ModeChoiceHandler):
 class EchoChatSetApproveModeCommand(sublime_plugin.WindowCommand):
     """Set permission approve mode for the current Echo session."""
     def run(self, mode):
-        try:
-            approve_mode = ApproveMode(mode)
-        except (TypeError, ValueError):
-            sublime.status_message("Unknown approve mode: {}".format(mode))
-            return
-
-        self.window.settings().set(CHAT_APPROVE_MODE, approve_mode.value)
-        sublime.status_message(
-            "Approve mode set to: {}".format(approve_mode.value)
-        )
-
-        session = EchoWindowContext(self.window).session
-        if session is not None:
-            session.model_phantom.update()
+        SessionPreferences(self.window).select_approval(mode)
 
     def input(self, args):
         return _mode_input(
@@ -651,21 +624,7 @@ class EchoChatTogglePlanModeCommand(sublime_plugin.WindowCommand):
     Toggle plan mode for the current Echo session.
     """
     def run(self, mode):
-        plan_mode_enum = (
-            PlanMode.PLANNING
-            if mode == PlanMode.PLANNING.value else PlanMode.FAST
-        )
-
-        self.window.settings().set(CHAT_PLAN_MODE, plan_mode_enum.value)
-
-        session = EchoWindowContext(self.window).session
-        if session is not None:
-            session.model_phantom.update()
-            # Codex supports changing plan mode without reconnecting.
-            session.apply_plan_mode(plan_mode_enum)
-
-        status = "enabled" if plan_mode_enum == PlanMode.PLANNING else "disabled"
-        sublime.status_message(f"Plan mode {status}")
+        SessionPreferences(self.window).select_plan(mode)
 
     def input(self, args):
         return _mode_input(

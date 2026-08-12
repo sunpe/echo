@@ -104,7 +104,7 @@ class PiAgentLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_message_stream_finishes_without_polling(self):
         agent = PiAgent(PiAgentOptions(cli_path="pi"))
-        await agent._messages.put(agent._parse({
+        await agent._message_queue().put(agent._parse({
             "type": "message_update",
             "assistantMessageEvent": {"type": "text_delta", "delta": "one"},
         }))

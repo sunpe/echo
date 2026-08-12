@@ -67,8 +67,9 @@ class PromptGlyph:
     )
 
     def __init__(self, view):
-        self._view = view
-        self._phantoms = sublime.PhantomSet(view, "echo_prompt_glyph")
+        self._view, self._phantoms = (
+            view, sublime.PhantomSet(view, "echo_prompt_glyph")
+        )
 
     def update(self):
         position = input_editable_start(self._view)
@@ -85,11 +86,10 @@ class PromptGlyph:
 
 class ComposerControls:
     def __init__(self, view, window, session_lookup=None):
-        self.view = view
-        self.window = window
-        self.session_lookup = session_lookup
-        self.phantom_set = sublime.PhantomSet(view, "echo_composer_controls")
-        self.status_hint = StatusHint()
+        self.view, self.window, self.session_lookup = view, window, session_lookup
+        self.phantom_set, self.status_hint = (
+            sublime.PhantomSet(view, "echo_composer_controls"), StatusHint()
+        )
 
     def navigate(self, target):
         command = {

@@ -24,10 +24,12 @@ class PromptEditor:
 
     def move_to_end(self):
         end = self.view.size()
-        self.view.sel().clear()
-        self.view.sel().add(sublime.Region(end))
-        self.view.show(end)
-        return end
+        caret = sublime.Region(end, end)
+        selection = self.view.sel()
+        selection.clear()
+        selection.add(caret)
+        self.view.show(caret)
+        return caret.end()
 
     def replace(self, edit, text):
         self.view.replace(
@@ -63,9 +65,12 @@ class PromptEditor:
         return sublime.Region(start + len(marker), self.view.size())
 
     def append_output(self, edit, text):
-        insertion_point = get_input_start(self.view, 0) - 1
-        length = self.view.insert(edit, insertion_point, text)
-        set_input_start(self.view, insertion_point + length + 1)
+        boundary = get_input_start(self.view, 0)
+        inserted = self.view.insert(edit, boundary - 1, text)
+        self._move_boundary(boundary + inserted)
+
+    def _move_boundary(self, position):
+        set_input_start(self.view, position)
         self.view.show(self.view.size())
 
     def prepare_programmatic_insert(self):

@@ -88,6 +88,14 @@ class _Change:
     added: int = 0
     removed: int = 0
 
+    def include(self, diff_text):
+        if not diff_text:
+            return
+        self.diffs.append(diff_text)
+        added, removed = _diff_delta(diff_text)
+        self.added += added
+        self.removed += removed
+
 
 class _ChangeLedger:
     """Turn-scoped change storage independent of Sublime UI state."""
@@ -98,11 +106,7 @@ class _ChangeLedger:
 
     def add(self, path, relative, diff_text):
         entry = self.entries.setdefault(path, _Change(relative))
-        if diff_text:
-            entry.diffs.append(diff_text)
-            entry.added, entry.removed = _line_totals(
-                entry.diffs
-            )
+        entry.include(diff_text)
         if path not in self.pending:
             self.pending.append(path)
 
@@ -116,14 +120,12 @@ class _ChangeLedger:
         self.pending = []
 
 
-def _line_totals(chunks):
-    added = removed = 0
-    for chunk in chunks:
-        for line in (chunk or '').splitlines():
-            if line.startswith('+') and not line.startswith('+++'):
-                added += 1
-            elif line.startswith('-') and not line.startswith('---'):
-                removed += 1
+def _diff_delta(diff_text):
+    lines = diff_text.splitlines()
+    added = sum(line.startswith('+') and not line.startswith('+++')
+                for line in lines)
+    removed = sum(line.startswith('-') and not line.startswith('---')
+                  for line in lines)
     return added, removed
 
 
@@ -190,10 +192,8 @@ class FileChangesArtifact:
     """Collect per-turn changes and render a compact clickable summary."""
 
     def __init__(self, view, window, input_start_fn):
-        self.view = view
-        self.window = window
-        self.input_start_fn = input_start_fn
-        self._ledger = _ChangeLedger()
+        self.view, self.window = view, window
+        self.input_start_fn, self._ledger = input_start_fn, _ChangeLedger()
         self.file_regions = []
 
     def record(self, abs_path, rel_path, diff_text, extra_env=None):

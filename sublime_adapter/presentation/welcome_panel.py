@@ -17,9 +17,9 @@ def _compact_workspace(path, segments=3):
 
 class WelcomePanel:
     def __init__(self, view, cwd):
-        self._view = view
-        self._cwd = cwd
-        self._phantoms = sublime.PhantomSet(view, "echo_welcome")
+        self._view, self._cwd, self._phantoms = (
+            view, cwd, sublime.PhantomSet(view, "echo_welcome")
+        )
 
     def update(self, cwd=None):
         if cwd is not None:

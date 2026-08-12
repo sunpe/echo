@@ -292,8 +292,9 @@ class DynamicProtocolTest(unittest.IsolatedAsyncioTestCase):
             dynamic_tools=specs,
         ))
         with patch("echo.providers.codex.client.WebSocketTransport", FallbackTransport):
-            with self.assertNoLogs("echo", level="ERROR"):
+            with patch("echo.providers.codex.client.LOG.error") as log_error:
                 await agent.connect()
+        log_error.assert_not_called()
         try:
             starts = [
                 item for item in FallbackTransport.instances[-1].sent

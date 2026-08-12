@@ -8,7 +8,6 @@ from ...providers import (
     resolve_provider,
 )
 from ...domain.conversation.identity import session_reference
-from ...workspace.local_references import normalize_local_references
 from ...workspace import DEFAULT_ENABLED_TOOLS
 from ..workspace_bridge import SublimeWorkspaceTools
 from ...runtime.session_registry import register_session
@@ -23,7 +22,7 @@ from ...shared.settings import (
 )
 from .chat_processor import EchoMessageProcessor
 from ...domain.conversation.checkpoints import PromptCheckpointLedger
-from .chat_panel import LoadingAnimation, RewindConfirmPanel
+from .chat_panel import ConversationActivity, LoadingAnimation, RewindConfirmPanel
 from .artifact import FileChangesArtifact
 from ...runtime.provider_worker import ProviderWorker
 from ...runtime.session_store import echo_clients
@@ -46,6 +45,7 @@ from .ui_components import (
 from .composer_controls import ComposerControls, PromptGlyph
 from .approval_ui import ApprovalPanel
 from .welcome_panel import WelcomePanel
+from .conversation_controller import ConversationController
 
 
 def _blocked_tools(settings):
@@ -129,6 +129,10 @@ class ChatSession:
 
         # End-of-turn file changes artifact (records edit diffs, renders file list)
         self.artifact = FileChangesArtifact(self.chat_view, self.window, get_input_start)
+        self.actions = ConversationController(self)
+        self.activity = ConversationActivity(
+            self.chat_view, self.loading_animation, self.model_phantom
+        )
 
         self.runtime = SessionRuntime(self._on_runtime_phase_change)
         # Do not carry a stale failed/disconnected state across restored views.
@@ -303,32 +307,21 @@ class ChatSession:
         )
 
     def _send_approval_reply(self, request_id, response_data):
-        if self.agent_thread:
-            self.agent_thread.reply_approval(request_id, response_data)
-
-    def _render_activity(self, active, text=None):
-        if active:
-            self.loading_animation.start(self._activity_anchor, text)
-        else:
-            self.loading_animation.stop()
-        self.model_phantom.set_running(active)
+        sender = getattr(self.agent_thread, "reply_approval", None)
+        return bool(sender and sender(request_id, response_data))
 
     def begin_activity(self, text=None):
         sublime.set_timeout(
-            lambda: self._render_activity(True, text), 0
+            lambda: self.activity.render(True, text), 0
         )
 
     def end_activity(self):
         sublime.set_timeout(
-            lambda: self._render_activity(False), 0
+            lambda: self.activity.render(False), 0
         )
 
-    def _activity_anchor(self):
-        input_start = get_input_start(self.chat_view)
-        return sublime.Region(max(0, input_start - 1), input_start)
-
     def stop(self):
-        self._render_activity(False)
+        self.activity.render(False)
         for component in (
             self.model_phantom,
             self.input_marker,
@@ -361,51 +354,16 @@ class ChatSession:
         self.window.settings().set(CHAT_PLAN_MODE, stored)
 
     def send_input(self, user_input, region=None):
-        self.rewind_confirm_panel.clear()
-        agent = self.agent_thread
-        if agent is None:
-            provider = getattr(self, "provider", None)
-            label = getattr(provider, "name", "Agent")
-            self.chat_view.run_command("echo_chat_output_append", {
-                "text": "\n\n⚠️ Error: {} is unavailable.\n\n".format(label)
-            })
-            self.end_activity()
-            return
-        if region is not None:
-            self.add_prompt_highlight(region)
-        self.message_processor.reset_plan()
-        self.mark_conversation_started()
-        if agent.session_id:
-            self.set_view_session_id(self.chat_view, agent.session_id)
-        roots = [self.cwd] + list(self.add_dirs)
-        outgoing = normalize_local_references(user_input, roots)
-        if not agent.enqueue(outgoing):
-            self.chat_view.run_command("echo_chat_output_append", {
-                "text": "\n\n⚠️ Error: Agent connection is no longer active. "
-                        "Restart or reconnect the chat session.\n\n"
-            })
-            self.end_activity()
+        self.actions.submit(user_input, region)
 
     def request_steering(self, text, proceed_plan=False):
-        worker = self.agent_thread
-        if worker is not None:
-            worker.steer(text, proceed_plan=proceed_plan)
+        return self.actions.steer(text, proceed_plan)
 
     def implement_plan(self):
-        """Record the plan transition as a prompt, then ask the provider to run it."""
-        insertion = get_input_start(self.chat_view, 0)
-        self.chat_view.run_command(
-            "echo_chat_output_append", {"text": "\nimplement the plan\n\n"}
-        )
-        self.add_prompt_highlight(sublime.Region(insertion, insertion))
-        self.request_steering("Implement the plan.", proceed_plan=True)
+        self.actions.implement_plan()
 
     def capture_file_change(self, abs_path, rel_path, diff_text):
-        worker = self.agent_thread
-        environment = worker.agent_config.get("env") if worker else None
-        self.artifact.record(
-            abs_path, rel_path, diff_text, extra_env=environment
-        )
+        self.actions.record_change(abs_path, rel_path, diff_text)
 
     def present_file_changes(self):
         self.artifact.show()
@@ -559,8 +517,4 @@ class ChatSession:
                 })
 
     def apply_plan_mode(self, plan_mode):
-        self.end_activity()
-        worker = self.agent_thread
-        if worker is not None:
-            worker.reconfigure(plan_mode=plan_mode is PlanMode.PLANNING)
-        LOG.info("Updated plan mode to %s", plan_mode.value)
+        self.actions.set_plan_mode(plan_mode)

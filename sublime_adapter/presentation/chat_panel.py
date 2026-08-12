@@ -4,6 +4,8 @@ import html
 
 import sublime
 
+from .ui_components import get_input_start
+
 
 def _stop_link(label):
     shortcut = "⌘+Esc" if sublime.platform() == "osx" else "Shift+Esc"
@@ -94,6 +96,26 @@ class LoadingAnimation:
         sublime.set_timeout(
             lambda: self._draw(generation), self.INTERVAL_MS
         )
+
+
+class ConversationActivity:
+    """Keep spinner placement and composer state synchronized."""
+
+    def __init__(self, view, spinner, controls):
+        self._parts = (view, spinner, controls)
+
+    def render(self, active, text=None):
+        view, spinner, controls = self._parts
+        if active:
+            spinner.start(lambda: self._anchor(view), text)
+        else:
+            spinner.stop()
+        controls.set_running(active)
+
+    @staticmethod
+    def _anchor(view):
+        boundary = get_input_start(view)
+        return sublime.Region(max(0, boundary - 1), boundary)
 
 
 class RewindConfirmPanel:
