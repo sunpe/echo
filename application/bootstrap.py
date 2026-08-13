@@ -1,29 +1,27 @@
-"""Package reload and plugin-export helpers for Sublime's module loader."""
+"""Plugin entry loading and type export helpers for Sublime Text."""
 
 import importlib
 import sys
 
 
-def _package_modules(package_name, preserved_modules=()):
-    prefix = package_name + "."
-    preserved = {__name__, *preserved_modules}
-    return [
-        name for name in tuple(sys.modules)
-        if name.startswith(prefix) and name not in preserved
-    ]
-
-
 def load_package_entry(package_name, relative_module, preserved_modules=()):
-    """Reload package internals, then import the module Sublime should inspect."""
+    """Load or refresh the application entry without dismantling its packages.
+
+    Sublime owns package unloading. Removing nested modules here while its
+    custom loader is importing ``echo.echo`` can leave parent packages in a
+    half-loaded state, making valid descendants impossible to resolve.
+    ``preserved_modules`` remains accepted for entry-point compatibility.
+    """
     if not package_name:
         raise RuntimeError("Echo must be loaded as a Sublime package")
-    for name in sorted(
-        _package_modules(package_name, preserved_modules),
-        key=lambda value: value.count("."),
-        reverse=True,
-    ):
-        sys.modules.pop(name, None)
-    return importlib.import_module("{}.{}".format(package_name, relative_module))
+    del preserved_modules
+    module_name = "{}.{}".format(package_name, relative_module)
+    loaded = sys.modules.get(module_name)
+    return (
+        importlib.reload(loaded)
+        if loaded is not None
+        else importlib.import_module(module_name)
+    )
 
 
 def export_plugin_types(entry_module, modules=None):

@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INCLUDED_TOP_LEVEL_FILES = {
+    ".python-version",
     "Default (OSX).sublime-keymap",
     "Default.sublime-keymap",
     "Echo.sublime-commands",

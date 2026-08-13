@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish Sublime package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+
+      - name: Verify tag matches source version
+        shell: bash
+        run: |
+          version="$(python -c 'from shared.version import VERSION; print(VERSION)')"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match shared.version ${version}" >&2
+            exit 1
+          fi
+          echo "ECHO_VERSION=${version}" >> "${GITHUB_ENV}"
+          echo "ECHO_PACKAGE=echo-v${version}.sublime-package" >> "${GITHUB_ENV}"
+
+      - name: Run release test suite
+        shell: bash
+        run: |
+          PYTHONPATH=. python -m unittest discover -s test/providers -t . -p 'test_*.py'
+          PYTHONPATH=. python -m unittest discover -s test/sublime_adapter -t . -p 'test_*.py'
+          PYTHONPATH=. python -m unittest discover -s test/scripts -t . -p 'test_*.py'
+          python scripts/release_check.py
+
+      - name: Build plugin package
+        shell: bash
+        run: |
+          mkdir -p dist
+          python scripts/build_package.py "dist/${ECHO_PACKAGE}"
+          python - <<'PY'
+          import os
+          from zipfile import ZipFile
+
+          archive = os.path.join("dist", os.environ["ECHO_PACKAGE"])
+          with ZipFile(archive) as package:
+              names = set(package.namelist())
+              if package.read(".python-version").decode("utf-8").strip() != "3.8":
+                  raise SystemExit("release package does not select Python 3.8")
+              if "sublime_adapter/presentation/chat_view.py" not in names:
+                  raise SystemExit("release package is missing chat_view.py")
+          PY
+          sha256sum "dist/${ECHO_PACKAGE}" > "dist/${ECHO_PACKAGE}.sha256"
+
+      - name: Preserve release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: echo-release-${{ env.ECHO_VERSION }}
+          path: |
+            dist/${{ env.ECHO_PACKAGE }}
+            dist/${{ env.ECHO_PACKAGE }}.sha256
+          if-no-files-found: error
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/${ECHO_PACKAGE}" \
+            "dist/${ECHO_PACKAGE}.sha256" \
+            --verify-tag \
+            --title "Echo ${ECHO_VERSION}" \
+            --generate-notes

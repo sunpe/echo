@@ -10,6 +10,7 @@ class BuildPackageTest(unittest.TestCase):
         names = {path.name for path in package_files()}
 
         self.assertTrue({
+            ".python-version",
             "Default (OSX).sublime-keymap",
             "Default.sublime-keymap",
             "Side Bar.sublime-menu",
@@ -24,6 +25,7 @@ class BuildPackageTest(unittest.TestCase):
             (root / "workspace").mkdir()
             (root / "workspace" / "executor.py").write_text("safe")
             (root / "README.md").write_text("safe")
+            (root / ".python-version").write_text("3.8")
             (root / ".env").write_text("secret")
             (root / "notes.txt").write_text("private")
             output = root / "echo.sublime-package"
@@ -36,6 +38,7 @@ class BuildPackageTest(unittest.TestCase):
 
         self.assertEqual(
             {
+                ".python-version",
                 "README.md",
                 "providers/client.py",
                 "workspace/executor.py",

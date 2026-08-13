@@ -12,15 +12,8 @@ from echo.application.bootstrap import export_plugin_types, load_package_entry
 
 
 class BootstrapTest(unittest.TestCase):
-    def test_package_entry_replaces_stale_bootstrap_before_calling_it(self):
+    def test_package_entry_can_be_imported_twice_without_removing_children(self):
         package_name = "echo_reload_fixture"
-        stale_bootstrap_name = package_name + ".application.bootstrap"
-        stale_bootstrap = ModuleType(stale_bootstrap_name)
-
-        def stale_load_package_entry(_package_name, _relative_module):
-            raise AssertionError("stale two-argument bootstrap was called")
-
-        stale_bootstrap.load_package_entry = stale_load_package_entry
 
         with tempfile.TemporaryDirectory() as temporary:
             package = Path(temporary, package_name)
@@ -35,47 +28,62 @@ class BootstrapTest(unittest.TestCase):
                 encoding="utf-8",
             )
             application.joinpath("bootstrap.py").write_text(
-                "from types import SimpleNamespace\n"
-                "def load_package_entry(package_name, relative_module, "
-                "preserved_modules=()):\n"
-                "    return SimpleNamespace(plugin_loaded=lambda: None, "
-                "plugin_unloaded=lambda: None)\n"
-                "def export_plugin_types(entry_module):\n"
-                "    return {}\n",
+                Path(__file__).resolve().parents[2]
+                .joinpath("application", "bootstrap.py")
+                .read_text(encoding="utf-8"),
                 encoding="utf-8",
+            )
+            application.joinpath("entry.py").write_text(
+                "def plugin_loaded(): pass\n"
+                "def plugin_unloaded(): pass\n",
+                encoding="utf-8",
+            )
+            application.joinpath("child.py").write_text(
+                "VALUE = 1\n", encoding="utf-8"
+            )
+            application.joinpath("__init__.py").write_text(
+                "", encoding="utf-8"
+            )
+            package.joinpath("__init__.py").write_text(
+                "", encoding="utf-8"
             )
 
             original_path = list(sys.path)
             sys.path.insert(0, temporary)
-            sys.modules[stale_bootstrap_name] = stale_bootstrap
             try:
-                entry = importlib.import_module(package_name + ".echo")
+                child = importlib.import_module(
+                    package_name + ".application.child"
+                )
+                first = importlib.import_module(package_name + ".echo")
+                second = importlib.reload(first)
             finally:
                 sys.path[:] = original_path
                 for name in tuple(sys.modules):
                     if name == package_name or name.startswith(package_name + "."):
                         sys.modules.pop(name, None)
 
-        self.assertTrue(callable(entry.plugin_loaded))
+        self.assertTrue(callable(second.plugin_loaded))
+        self.assertEqual(1, child.VALUE)
 
-    def test_load_package_entry_preserves_active_plugin_module(self):
+    def test_load_package_entry_reloads_only_existing_entry(self):
+        entry = ModuleType("echo.application.entry")
+        child = ModuleType("echo.sublime_adapter.presentation.chat_view")
         modules = {
-            "echo.echo": object(),
-            "echo.application.old": object(),
+            "echo.application.entry": entry,
+            "echo.sublime_adapter.presentation.chat_view": child,
         }
-        entry = object()
 
         with patch.object(bootstrap.sys, "modules", modules):
             with patch.object(
-                bootstrap.importlib, "import_module", return_value=entry
-            ):
-                loaded = load_package_entry(
-                    "echo", "application.entry", ("echo.echo",)
-                )
+                bootstrap.importlib, "reload", return_value=entry
+            ) as reload_module:
+                loaded = load_package_entry("echo", "application.entry")
 
-            self.assertIn("echo.echo", modules)
-            self.assertNotIn("echo.application.old", modules)
-            self.assertIs(entry, loaded)
+        reload_module.assert_called_once_with(entry)
+        self.assertIs(entry, loaded)
+        self.assertIs(child, modules[
+            "echo.sublime_adapter.presentation.chat_view"
+        ])
 
     def test_only_echo_package_types_are_exported(self):
         local = type("EchoCommand", (), {})

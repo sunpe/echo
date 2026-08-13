@@ -77,6 +77,7 @@ def main():
         fail("Package Settings must extend existing menu ids without replacing captions")
 
     required = (
+        ".python-version",
         "CHANGELOG.md",
         "CODE_OF_CONDUCT.md",
         "CONTRIBUTING.md",
@@ -123,6 +124,12 @@ def main():
         if not (ROOT / relative).is_file():
             fail("missing required file: " + relative)
 
+    runtime_version = (ROOT / ".python-version").read_text(
+        encoding="utf-8"
+    ).strip()
+    if runtime_version != "3.8":
+        fail(".python-version must select Sublime's Python 3.8 runtime")
+
     packaged = {
         path.relative_to(ROOT).as_posix()
         for path in package_files(root=ROOT)
@@ -139,6 +146,8 @@ def main():
             "production Python modules excluded from package: "
             + ", ".join(omitted_modules)
         )
+    if ".python-version" not in packaged:
+        fail("package must contain .python-version")
 
     version_source = (ROOT / "shared" / "version.py").read_text(
         encoding="utf-8"

@@ -5,8 +5,7 @@ import sys
 
 
 _bootstrap_name = __package__ + ".application.bootstrap"
-sys.modules.pop(_bootstrap_name, None)
-_bootstrap = importlib.import_module(_bootstrap_name)
+_bootstrap = importlib.reload(importlib.import_module(_bootstrap_name))
 
 _entry = _bootstrap.load_package_entry(
     __package__, "application.entry", (__name__,)
