@@ -23,6 +23,8 @@ class ReleaseWorkflowTest(unittest.TestCase):
 
     def test_release_publishes_runtime_checked_package_and_checksum(self):
         self.assertIn("python scripts/build_package.py", self.source)
+        self.assertIn("ECHO_PACKAGE=echo.sublime-package", self.source)
+        self.assertNotIn("ECHO_PACKAGE=echo-v${version}", self.source)
         self.assertIn('package.read(".python-version")', self.source)
         self.assertIn("sha256sum", self.source)
         self.assertIn("actions/upload-artifact@v4", self.source)

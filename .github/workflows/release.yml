@@ -34,7 +34,7 @@ jobs:
             exit 1
           fi
           echo "ECHO_VERSION=${version}" >> "${GITHUB_ENV}"
-          echo "ECHO_PACKAGE=echo-v${version}.sublime-package" >> "${GITHUB_ENV}"
+          echo "ECHO_PACKAGE=echo.sublime-package" >> "${GITHUB_ENV}"
 
       - name: Run release test suite
         shell: bash
