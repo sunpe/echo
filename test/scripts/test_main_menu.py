@@ -12,7 +12,7 @@ class MainMenuTest(unittest.TestCase):
 
         self.assertIn("echo_edit_key_bindings", source)
 
-    def test_package_settings_extends_public_menu_nodes(self):
+    def test_package_settings_creates_or_extends_public_menu_nodes(self):
         menu = json.loads(
             ROOT.joinpath("Main.sublime-menu").read_text(encoding="utf-8")
         )
@@ -23,7 +23,8 @@ class MainMenuTest(unittest.TestCase):
         )
 
         self.assertNotIn("caption", preferences)
-        self.assertNotIn("caption", package_settings)
+        self.assertEqual("Package Settings", package_settings["caption"])
+        self.assertEqual("P", package_settings["mnemonic"])
         self.assertEqual(
             "echo-package-settings",
             package_settings["children"][0]["id"],

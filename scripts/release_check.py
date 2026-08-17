@@ -73,8 +73,13 @@ def main():
         ),
         None,
     )
-    if not package_settings or "caption" in preferences or "caption" in package_settings:
-        fail("Package Settings must extend existing menu ids without replacing captions")
+    if (
+        not package_settings
+        or "caption" in preferences
+        or package_settings.get("caption") != "Package Settings"
+        or package_settings.get("mnemonic") != "P"
+    ):
+        fail("Package Settings must be visible and extend the Preferences menu")
 
     required = (
         ".python-version",
