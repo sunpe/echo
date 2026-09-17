@@ -9,7 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from echo.domain.messages.message import CodexAgentOptions
-from echo.providers.codex.client import CodexAgent, _app_server_rpc
+from echo.providers.codex.client import (
+    CodexAgent,
+    _app_server_rpc,
+    _thread_not_found,
+)
 from echo.providers.codex.compatibility import flatten_tools, validate_version
 from echo.workspace import LocalWorkspaceTools, dynamic_tool_specs
 from echo.workspace.project_instructions import load_project_instructions
@@ -24,6 +28,17 @@ from echo.vendor import websockets as vendored_websockets
 class WebSocketTransportTest(unittest.TestCase):
     def test_bundled_runtime_is_preferred(self):
         self.assertIs(vendored_websockets, _load_websockets())
+
+    def test_only_explicit_missing_thread_errors_trigger_fallback(self):
+        self.assertTrue(_thread_not_found(CodexRPCError(
+            "thread/resume", {"message": "thread not found"}
+        )))
+        self.assertFalse(_thread_not_found(CodexRPCError(
+            "thread/resume", {"message": "unknown internal server error"}
+        )))
+        self.assertFalse(_thread_not_found(CodexRPCError(
+            "turn/start", {"message": "thread not found"}
+        )))
 
 
 class LocalWorkspaceToolsTest(unittest.IsolatedAsyncioTestCase):
@@ -51,6 +66,31 @@ class LocalWorkspaceToolsTest(unittest.IsolatedAsyncioTestCase):
             hashlib.sha256(b"alpha\nbeta\n").hexdigest(),
             result["sha256"],
         )
+
+    async def test_execute_runs_in_workspace_and_returns_output(self):
+        tools = LocalWorkspaceTools([self.root], ["execute"])
+        result = await tools(
+            "local_workspace",
+            "execute",
+            {"command": "printf 'ok'", "path": "src"},
+        )
+        self.assertEqual("ok", result["stdout"])
+        self.assertEqual("", result["stderr"])
+        self.assertEqual(0, result["exitCode"])
+        self.assertFalse(result["timedOut"])
+        self.assertEqual(os.path.realpath(os.path.join(self.root, "src")), result["cwd"])
+
+    async def test_execute_rejects_workspace_escape_and_empty_command(self):
+        tools = LocalWorkspaceTools([self.root], ["execute"])
+        with self.assertRaises(PermissionError):
+            await tools(
+                "local_workspace", "execute",
+                {"command": "pwd", "path": "../"},
+            )
+        with self.assertRaises(ValueError):
+            await tools(
+                "local_workspace", "execute", {"command": "   "}
+            )
 
     async def test_disk_tools_run_outside_event_loop_thread(self):
         event_loop_thread = threading.get_ident()
@@ -226,6 +266,11 @@ class DynamicProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             all("inputSchema" in tool for tool in specs[0]["tools"])
         )
+
+    def test_execute_spec_requires_command(self):
+        spec = dynamic_tool_specs(["execute"])[0]["tools"][0]
+        self.assertEqual("execute", spec["name"])
+        self.assertEqual(["command"], spec["inputSchema"]["required"])
 
     def test_flatten_dynamic_tools_preserves_input_schema_and_aliases(self):
         specs = dynamic_tool_specs(["read", "create"])
@@ -574,6 +619,29 @@ class DynamicProtocolTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(responses[0]["success"])
 
+    async def test_execute_always_requires_approval(self):
+        calls = []
+
+        async def handler(namespace, tool, arguments):
+            calls.append(tool)
+            return {"ok": True}
+
+        agent = CodexAgent(CodexAgentOptions(
+            app_server_url="wss://example.com",
+            local_tool_handler=handler,
+            local_tools_require_approval=[],
+        ))
+        approvals = []
+        agent._approvals.ask = lambda *args: approvals.append(args) or asyncio.sleep(0, result=True)
+        agent._rpc.respond = lambda *args: asyncio.sleep(0)
+        await agent._handle_dynamic_tool_call(18, {
+            "namespace": "local_workspace",
+            "tool": "execute",
+            "arguments": {"command": "pwd"},
+        })
+        self.assertEqual(["execute"], calls)
+        self.assertEqual("local_workspace.execute", approvals[0][1])
+
     async def test_duplicate_call_id_executes_once(self):
         count = 0
 
@@ -720,6 +788,12 @@ class DynamicProtocolTest(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(
                         "read-only", thread_start["params"]["sandbox"]
                     )
+                    self.assertEqual(
+                        "detailed",
+                        thread_start["params"]["config"][
+                            "model_reasoning_summary"
+                        ],
+                    )
                     self.assertEqual("A10001", thread_start["params"]["employeeId"])
                     self.assertEqual(
                         [], thread_start["params"]["environments"]
@@ -846,6 +920,69 @@ class DynamicProtocolTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("failed", agent.connection_state)
         self.assertEqual("failed", states[-1][0])
 
+    async def test_missing_resume_thread_starts_new_session(self):
+        class MissingThreadTransport:
+            instances = []
+
+            def __init__(self, *args, **kwargs):
+                self.sent = []
+                self.queue = asyncio.Queue()
+                self.__class__.instances.append(self)
+
+            async def connect(self):
+                return None
+
+            async def send(self, message):
+                self.sent.append(message)
+                request_id = message.get("id")
+                if request_id is None:
+                    return
+                method = message.get("method")
+                if method == "thread/resume":
+                    await self.queue.put({
+                        "id": request_id,
+                        "error": {
+                            "code": -32001,
+                            "message": "thread not found",
+                        },
+                    })
+                    return
+                result = {"thread": {"id": "thread-new"}} \
+                    if method == "thread/start" else {}
+                await self.queue.put({"id": request_id, "result": result})
+
+            async def messages(self):
+                while True:
+                    yield await self.queue.get()
+
+            async def close(self):
+                return None
+
+        options = CodexAgentOptions(
+            app_server_url="wss://example.com",
+            session_id="thread-missing",
+        )
+        with patch(
+            "echo.providers.codex.client.WebSocketTransport",
+            MissingThreadTransport,
+        ):
+            agent = CodexAgent(options)
+            await agent.connect()
+            try:
+                methods = [
+                    message.get("method")
+                    for message in MissingThreadTransport.instances[-1].sent
+                    if message.get("method")
+                ]
+                self.assertIn("thread/resume", methods)
+                self.assertIn("thread/start", methods)
+                self.assertEqual("thread-new", agent.thread_id)
+                notice = await agent._message_queue.get()
+                self.assertEqual("thread_fallback", notice.type)
+                self.assertEqual("thread-new", notice.content["session_id"])
+            finally:
+                await agent.disconnect()
+
     async def test_reconnect_resumes_same_thread_without_replaying_tools(self):
         states = []
 
@@ -922,6 +1059,10 @@ class DynamicProtocolTest(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     "thread-existing", resume["params"]["threadId"]
+                )
+                self.assertEqual(
+                    "detailed",
+                    resume["params"]["config"]["model_reasoning_summary"],
                 )
                 self.assertNotIn("dynamicTools", resume["params"])
                 self.assertEqual("read-only", resume["params"]["sandbox"])

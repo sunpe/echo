@@ -1,7 +1,7 @@
 import sys
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 sys.modules.setdefault("sublime", MagicMock())
@@ -17,6 +17,7 @@ sys.modules.setdefault(
     ),
 )
 from echo.sublime_adapter.presentation.chat_view import ChatSession
+from echo.sublime_adapter.view_service import ChatViewService
 from echo.sublime_adapter.presentation.ui_components import (
     CHAT_CONNECTION_STATE,
     PlanMode,
@@ -69,6 +70,39 @@ class AgentConfigTest(unittest.TestCase):
 
         self.assertTrue(session.has_sent_message)
         session.welcome_panel.clear.assert_called_once_with()
+
+    def test_new_chat_defaults_to_existing_session_in_current_column(self):
+        window = MagicMock()
+        view = MagicMock()
+        session = MagicMock()
+        service = ChatViewService(window)
+        service.context = SimpleNamespace(
+            echo_view=lambda: view,
+            session=session,
+        )
+        service._present = MagicMock()
+
+        result = service.open()
+
+        self.assertIs(view, result)
+        service._present.assert_called_once_with(
+            view, dedicated_pane=False
+        )
+        session.reset_conversation.assert_not_called()
+        window.new_file.assert_not_called()
+
+    def test_disabled_dedicated_pane_focuses_without_creating_column(self):
+        window = MagicMock()
+        view = MagicMock()
+        service = ChatViewService(window)
+
+        with patch(
+            "echo.sublime_adapter.view_service.place_in_dedicated_pane"
+        ) as dedicated:
+            service._present(view, dedicated_pane=False)
+
+        dedicated.assert_not_called()
+        window.focus_view.assert_called_once_with(view)
 
 
 if __name__ == "__main__":

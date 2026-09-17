@@ -19,6 +19,12 @@ class ApprovalContent:
 
 
 class ApprovalCard:
+    _TITLES = {
+        "command_execution": "Command execution approval",
+        "fileChange": "File change approval",
+        "CodexImplementPlan": "Plan implementation approval",
+    }
+
     @classmethod
     def content(cls, tool, arguments, read_file=None):
         read_file = read_file or cls._read
@@ -29,36 +35,64 @@ class ApprovalCard:
                 else read_file(path)
             new = arguments.get("new_string", "") if tool == "Edit" \
                 else arguments.get("content", "")
-            return ApprovalContent(cls._link(name), (old, new, name))
+            action = "Edit file" if tool == "Edit" else "Write file"
+            return ApprovalContent(
+                cls._action(action) + "<br>" + cls._link(name),
+                (old, new, name),
+            )
         if tool == "CodexImplementPlan":
             plan = arguments.get("plan", "")
             headline = plan.splitlines()[0] if plan else "Empty Plan"
             return ApprovalContent(
-                cls._link("plan", "show_plan") + "<br>" + cls._safe(headline),
+                cls._action("Implement plan") + "<br>"
+                + cls._link("plan", "show_plan") + "<br>" + cls._safe(headline),
                 ("", plan, "Implementation Plan"),
                 plan,
             )
         if tool == "command_execution":
-            command = cls._safe(arguments.get("command", ""))
-            cwd = arguments.get("cwd")
-            detail = "<small>cwd: {}</small>".format(cls._safe(cwd)) if cwd else ""
-            return ApprovalContent(command + ("<br>" + detail if detail else ""))
+            command = cls._command(arguments) or "Command details unavailable"
+            details = cls._details(
+                ("Working directory", arguments.get("cwd")),
+                ("Reason", arguments.get("reason")),
+            )
+            return ApprovalContent(
+                cls._action("Execute command")
+                + '<div class="command">{}</div>'.format(cls._safe(command))
+                + details
+            )
         if tool == "fileChange":
             diff = arguments.get("processed_diff") or {}
             if not diff:
-                return ApprovalContent("file change without preview")
+                details = cls._details(
+                    ("Request", arguments.get("itemId")),
+                    ("Reason", arguments.get("reason")),
+                    ("Write scope", arguments.get("grantRoot")),
+                )
+                return ApprovalContent(
+                    cls._action("Modify files")
+                    + "<br><small>File preview unavailable</small>"
+                    + details
+                )
             name = diff.get("display_name", "file")
             files = diff.get("files") or ()
             listing = "".join("<li>{}</li>".format(cls._safe(path)) for path in files[:5])
             return ApprovalContent(
-                cls._link(name) + ("<ul>" + listing + "</ul>" if listing else ""),
+                cls._action("Modify files") + "<br>" + cls._link(name)
+                + ("<ul>" + listing + "</ul>" if listing else "")
+                + cls._details(
+                    ("Reason", arguments.get("reason")),
+                    ("Write scope", arguments.get("grantRoot")),
+                ),
                 (diff.get("old_text", ""), diff.get("new_text", ""), name),
             )
         rows = [
             "{}: {}".format(cls._safe(key), cls._safe(value))
             for key, value in arguments.items() if isinstance(value, str)
         ]
-        return ApprovalContent("<br>".join(rows))
+        return ApprovalContent(
+            cls._action(tool or "Unknown action")
+            + ("<br>" + "<br>".join(rows) if rows else "")
+        )
 
     @classmethod
     def render(cls, request_id, tool, content, mode=None):
@@ -66,24 +100,68 @@ class ApprovalCard:
                   ("deny", "Deny")]
         if mode in (ApproveMode.DEFAULT.value, ApproveMode.ALLOW_EDIT.value):
             labels.append(("allow_chat", "Allow for chat"))
-        actions = " ".join(
+        links = [
             '<a href="{}" class="{}">{}</a>'.format(action, action, label)
             for action, label in labels
-        )
+        ]
+        actions = " ".join(links[:2])
+        if len(links) > 2:
+            actions += '<div class="secondary-action">{}</div>'.format(links[2])
         return (
             '<body id="echo-approval-{id}"><style>'
-            '.card{{margin:10px 0;padding:10px;border-left:3px solid var(--accent)}}'
-            '.title{{font-weight:bold;color:var(--accent)}}'
-            '.body{{margin:8px 0 12px;font-family:var(--font-mono)}}'
-            '.card a{{padding:4px 8px;text-decoration:none;border-radius:3px}}'
-            '.allow,.allow_chat{{background:var(--greenish);color:var(--background)}}'
-            '.deny{{background:var(--redish);color:var(--background)}}'
-            '</style><section class="card"><div class="title">{tool}</div>'
-            '<div class="body">{body}</div><nav>{actions}</nav></section></body>'
+            '.card{{margin:10px 0;padding:10px;color:var(--foreground);'
+            'border-left:3px solid var(--accent)}}'
+            '.title{{font-weight:bold;color:var(--foreground)}}'
+            '.content{{margin:8px 0 12px}}'
+            '.command{{margin:6px 0;font-family:var(--font-mono);'
+            'white-space:pre-wrap}}'
+            '.content a{{color:var(--accent)}}'
+            '.actions a{{display:inline-block;padding:4px 8px;color:var(--foreground);'
+            'white-space:nowrap;text-decoration:none;border:1px solid;border-radius:3px}}'
+            '.secondary-action{{margin-top:7px}}'
+            '.actions .allow,.actions .allow_chat{{'
+            'background-color:color(var(--greenish) alpha(.15));'
+            'border-color:color(var(--greenish) alpha(.45))}}'
+            '.actions .deny{{background-color:color(var(--redish) alpha(.15));'
+            'border-color:color(var(--redish) alpha(.45))}}'
+            '</style><div class="card"><div class="title">{tool}</div>'
+            '<div class="content">{body}</div><div class="actions">'
+            '{actions}</div></div></body>'
         ).format(
-            id=cls._safe(request_id), tool=cls._safe(tool),
+            id=cls._safe(request_id),
+            tool=cls._safe(cls._TITLES.get(tool, tool or "Approval required")),
             body=content.markup, actions=actions,
         )
+
+    @classmethod
+    def _command(cls, arguments):
+        command = arguments.get("command")
+        if isinstance(command, str) and command.strip():
+            return command
+        if isinstance(command, (list, tuple)):
+            joined = " ".join(str(part) for part in command if part is not None)
+            if joined.strip():
+                return joined
+        actions = arguments.get("commandActions") or arguments.get("parsedCmd") or ()
+        if not isinstance(actions, (list, tuple)):
+            return ""
+        commands = [
+            action.get("command") or action.get("cmd")
+            for action in actions if isinstance(action, dict)
+        ]
+        return "\n".join(command for command in commands if command)
+
+    @classmethod
+    def _details(cls, *items):
+        rows = [
+            "<br><small>{}: {}</small>".format(cls._safe(label), cls._safe(value))
+            for label, value in items if value not in (None, "")
+        ]
+        return "".join(rows)
+
+    @classmethod
+    def _action(cls, label):
+        return "<b>Action:</b> {}".format(cls._safe(label))
 
     @staticmethod
     def _safe(value):

@@ -9,6 +9,7 @@ sys.modules.setdefault("sublime", MagicMock())
 from echo.runtime.provider_worker import ProviderWorker
 from echo.runtime.operation_mailbox import OperationMailbox, ProviderOperation
 from echo.runtime.session_store import create_chat_session, register_chat_session_type
+from echo.domain.messages.message import Message
 
 
 class FakeLoop:
@@ -114,6 +115,21 @@ class ProviderWorkerLifecycleTest(unittest.IsolatedAsyncioTestCase):
             captured[0], "developer_instructions_loader"
         ))
         self.assertFalse(hasattr(captured[0], "dynamic_tools"))
+
+    async def test_thread_fallback_updates_resumable_session(self):
+        class Agent:
+            async def receive_messages(self):
+                yield Message(
+                    "thread_fallback", {"session_id": "thread-new"}
+                )
+
+        thread = self._configured_worker()
+        thread.agent = Agent()
+        thread._publish = MagicMock()
+
+        await thread._pump_events()
+
+        self.assertEqual("thread-new", thread.agent_config["session_id"])
 
     async def test_input_failure_terminates_agent_loop(self):
         class FailingAgent:

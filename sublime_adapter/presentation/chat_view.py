@@ -241,7 +241,7 @@ class ChatSession:
             ),
             denied_globs=local_config.get("denied_globs"),
             max_read_bytes=local_config.get(
-                "max_read_bytes", 1024 * 1024
+                "max_read_bytes", 3 * 1024 * 1024
             ),
             max_output_bytes=local_config.get(
                 "max_output_bytes", 1024 * 1024

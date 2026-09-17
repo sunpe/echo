@@ -14,6 +14,7 @@ from echo.domain.messages.message import AssistantMessage, Message, TextBlock
 from echo.sublime_adapter.presentation.chat_processor import EchoMessageProcessor
 from echo.sublime_adapter.file_navigation import parse_file_target
 from echo.sublime_adapter.presentation.transcript_writer import ToolTranscript
+from echo.sublime_adapter.presentation.transcript_writer import ReasoningTranscript
 
 
 class WorkspaceLinkScenario(unittest.TestCase):
@@ -116,6 +117,78 @@ class TranscriptScenario(unittest.TestCase):
             "⏺ command (python -m unittest)\n\n    echo finished\n",
             rendered,
         )
+
+    def test_reasoning_is_routed_separately_from_reply(self):
+        processor = self.make_processor()
+        processor.output.reasoning = MagicMock()
+
+        processor.receive(Message("thinking_delta", "checking", id="r1"))
+        processor.receive(Message("thinking", "checking", id="r1"))
+
+        processor.output.reasoning.delta.assert_called_once_with(
+            "r1", "checking"
+        )
+        processor.output.reasoning.complete.assert_called_once_with(
+            "r1", "checking"
+        )
+        self.assertEqual(0, self.marker_count(processor))
+
+    def test_missing_thread_fallback_is_persisted_and_explained(self):
+        processor = self.make_processor()
+        processor.output.notice = MagicMock()
+
+        processor.receive(Message(
+            "thread_fallback", {"session_id": "new-thread"}
+        ))
+
+        processor.session.set_view_session_id.assert_called_once_with(
+            processor.session.chat_view, "new-thread"
+        )
+        processor.output.notice.assert_called_once_with(
+            "远程服务器未找到原会话，已按新会话重新连接。"
+        )
+
+
+class ReasoningTranscriptScenario(unittest.TestCase):
+    class Surface:
+        def __init__(self):
+            self.position = 0
+            self.writes = []
+            self.fold = MagicMock()
+
+        def append(self, text, on_commit=None):
+            start = self.position
+            self.position += len(text)
+            self.writes.append(text)
+            if on_commit:
+                on_commit(start, self.position)
+
+    def test_streamed_reasoning_folds_body_without_duplicate_completion(
+        self
+    ):
+        surface = self.Surface()
+        reasoning = ReasoningTranscript(surface)
+
+        reasoning.delta("r1", "first")
+        reasoning.delta("r1", " second")
+        reasoning.complete("r1", "first second")
+
+        self.assertEqual(
+            ["\n◇ 思考摘要\n\n", "first", " second", "\n\n"],
+            surface.writes,
+        )
+        body_start = len(surface.writes[0])
+        surface.fold.assert_called_once_with(
+            body_start, body_start + len("first second")
+        )
+
+    def test_completed_only_reasoning_is_still_rendered(self):
+        surface = self.Surface()
+        reasoning = ReasoningTranscript(surface)
+
+        reasoning.complete("r1", "summary")
+
+        self.assertEqual("summary", surface.writes[1])
 
 
 if __name__ == "__main__":

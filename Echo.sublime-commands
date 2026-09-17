@@ -1,7 +1,8 @@
 [
     {
         "caption": "echo: new chat",
-        "command": "echo_chat_cli"
+        "command": "echo_chat_cli",
+        "args": {"dedicated_pane": false}
     },
     {
         "caption": "echo: resume chat...",

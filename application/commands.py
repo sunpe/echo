@@ -75,8 +75,10 @@ def _mode_input(args, window, setting, default, handler):
     return handler(window.settings().get(setting, default))
 
 class EchoChatCliCommand(sublime_plugin.WindowCommand):
-    def run(self, initial_msg=""):
-        ChatViewService(self.window).open(initial_msg)
+    def run(self, initial_msg="", dedicated_pane=False):
+        ChatViewService(self.window).open(
+            initial_msg, dedicated_pane=dedicated_pane
+        )
 
 
 class EchoChatSplitChatCommand(sublime_plugin.WindowCommand):
@@ -317,6 +319,21 @@ class EchoChatClearSessionCommand(sublime_plugin.WindowCommand):
         session.reset_conversation()
         sublime.status_message("Resetting chat session...")
         LOG.info("Resetting chat session via disconnect/reconnect")
+
+    def is_enabled(self):
+        return EchoWindowContext(self.window).session is not None
+
+
+class EchoChatReconnectCommand(sublime_plugin.WindowCommand):
+    """Restart the provider while preserving the current remote session."""
+
+    def run(self):
+        session = EchoWindowContext(self.window).session
+        if session is None:
+            sublime.status_message("No active Echo session found")
+            return
+        session.restart_provider(quiet=True)
+        sublime.status_message("Reconnecting Echo...")
 
     def is_enabled(self):
         return EchoWindowContext(self.window).session is not None

@@ -35,16 +35,16 @@
 
     // Local workspace tools exposed to every configured app-server address.
     "local_tools": {
-        "enabled": ["pwd", "list", "stat", "read", "search", "write", "create"],
+        "enabled": ["pwd", "list", "stat", "read", "search", "write", "create", "execute"],
         "auto_approve": ["pwd", "list", "stat", "read", "search"],
-        "always_confirm": ["write", "create"],
+        "always_confirm": ["write", "create", "execute"],
         "denied_globs": [
             ".env", ".env.*", "**/.env", "**/.env.*",
             ".ssh/**", "**/.ssh/**", ".aws/**", "**/.aws/**",
             "*credentials*", "**/*credentials*", "*secret*",
             "**/*secret*", ".git/**", "**/.git/**"
         ],
-        "max_read_bytes": 1048576,
+        "max_read_bytes": 3145728,
         "max_output_bytes": 1048576
     },
 

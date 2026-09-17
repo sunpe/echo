@@ -23,13 +23,14 @@ class EchoMessageProcessor:
             "connection_state": self._connection,
             "control_request": self._approval,
             "thread_started": self._thread,
+            "thread_fallback": self._thread_fallback,
             "models_update": self._models,
             "model_update": self._model_changed,
             "result": self._result,
             "plan_delta": self._plan_chunk,
             "turn_started": self._turn,
-            "thinking_delta": self._activity,
-            "thinking": self._activity,
+            "thinking_delta": self._thinking_delta,
+            "thinking": self._thinking_complete,
             "text": self._activity,
             "stop": self._stop,
         }
@@ -95,6 +96,17 @@ class EchoMessageProcessor:
                 self.session.chat_view, session_id
             )
 
+    def _thread_fallback(self, event):
+        payload = event.content if isinstance(event.content, dict) else {}
+        session_id = payload.get("session_id")
+        if session_id:
+            self.session.set_view_session_id(
+                self.session.chat_view, session_id
+            )
+        detail = "远程服务器未找到原会话，已按新会话重新连接。"
+        self.output.notice(detail)
+        sublime.status_message(detail)
+
     def _models(self, event):
         payload = event.content if isinstance(event.content, dict) else {}
         catalog = payload.get("models") or ()
@@ -122,6 +134,14 @@ class EchoMessageProcessor:
 
     def _activity(self, _event):
         self.session.begin_activity()
+
+    def _thinking_delta(self, event):
+        self.session.begin_activity()
+        self.output.reasoning.delta(event.id, event.content)
+
+    def _thinking_complete(self, event):
+        self.session.begin_activity()
+        self.output.reasoning.complete(event.id, event.content)
 
     def _stop(self, _event):
         self.output.finish()

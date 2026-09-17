@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from echo.domain.messages.message import CodexAgentOptions, MessageType
 from echo.providers.codex.client import CodexAgent
+from echo.providers.codex.protocol import _reasoning_completed
 
 
 class ScriptedAppServer:
@@ -156,6 +157,73 @@ class CodexConversationScenario(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(tools))
         self.assertEqual("command_execution", tools[0].content["name"])
         self.assertEqual("ls", tools[0].content["command"])
+
+    async def test_reasoning_summary_stream_and_completed_item_are_compatible(self):
+        await self.connect()
+
+        await self.agent._event_reasoning_summary_part({
+            "itemId": "reasoning-1", "summaryIndex": 1,
+        })
+        await self.agent._event_reasoning_summary_delta({
+            "itemId": "reasoning-1", "delta": "second",
+        })
+        await self.agent._handle_item_completed({
+            "item": {
+                "type": "reasoning",
+                "id": "reasoning-1",
+                "summary": [
+                    {"type": "summary_text", "text": "first"},
+                    {"type": "summary_text", "text": "second"},
+                ],
+            }
+        })
+
+        messages = [await self.agent._message_queue.get() for _ in range(3)]
+        self.assertEqual(
+            ["\n\n", "second", "first\n\nsecond"],
+            [message.content for message in messages],
+        )
+        self.assertTrue(all(
+            message.id == "reasoning-1" for message in messages
+        ))
+
+    def test_legacy_reasoning_summary_strings_are_joined(self):
+        message = _reasoning_completed({
+            "type": "reasoning",
+            "id": "reasoning-legacy",
+            "summary": ["first", "second"],
+        })
+
+        self.assertEqual("first\n\nsecond", message.content)
+
+    async def test_reasoning_text_is_used_when_summary_is_unavailable(self):
+        await self.connect()
+
+        await self.agent._dispatch({
+            "method": "item/reasoning/textDelta",
+            "params": {
+                "itemId": "reasoning-raw",
+                "contentIndex": 0,
+                "delta": "checking locally",
+            },
+        })
+        await self.agent._handle_item_completed({
+            "item": {
+                "type": "reasoning",
+                "id": "reasoning-raw",
+                "summary": [],
+                "content": [
+                    {"type": "reasoning_text", "text": "checking locally"},
+                ],
+            }
+        })
+
+        streamed = await self.agent._message_queue.get()
+        completed = await self.agent._message_queue.get()
+        self.assertEqual("thinking_delta", streamed.type)
+        self.assertEqual("checking locally", streamed.content)
+        self.assertEqual("thinking", completed.type)
+        self.assertEqual("checking locally", completed.content)
 
 
 if __name__ == "__main__":

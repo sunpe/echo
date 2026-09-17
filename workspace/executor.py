@@ -5,6 +5,8 @@ import fnmatch
 import hashlib
 import json
 import os
+import signal
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable
@@ -18,7 +20,7 @@ class LocalWorkspaceTools:
         roots: Iterable[str],
         enabled: Iterable[str],
         denied_globs: Iterable[str] = None,
-        max_read_bytes: int = 1024 * 1024,
+        max_read_bytes: int = 3 * 1024 * 1024,
         max_output_bytes: int = 1024 * 1024,
     ):
         roots = [os.path.realpath(root) for root in roots if root]
@@ -346,6 +348,49 @@ class LocalWorkspaceTools:
             "root": args.get("root") or "root-1",
             "sha256": hashlib.sha256(args["content"].encode("utf-8")).hexdigest(),
         }
+
+    def _tool_execute(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        command = args.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError("command must be a non-empty string")
+        cwd = self._resolve(args.get("path", "."), root_id=args.get("root"))
+        if not os.path.isdir(cwd):
+            raise NotADirectoryError(args.get("path", "."))
+        timeout = min(max(int(args.get("timeoutSeconds", 120)), 1), 120)
+        process = subprocess.Popen(
+            ["/bin/sh", "-lc", command],
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        timed_out = False
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = process.communicate()
+        output_limit = max(self.max_output_bytes // 2 - 4096, 1)
+        return {
+            "command": command,
+            "root": args.get("root") or "root-1",
+            "path": args.get("path", "."),
+            "cwd": cwd,
+            "exitCode": process.returncode,
+            "timedOut": timed_out,
+            "stdout": self._limit_output(stdout, output_limit),
+            "stderr": self._limit_output(stderr, output_limit),
+        }
+
+    @staticmethod
+    def _limit_output(text: str, limit: int) -> str:
+        encoded = text.encode("utf-8")
+        return encoded[:limit].decode("utf-8", errors="ignore")
 
     @staticmethod
     def _atomic_write(path: str, content: str) -> None:

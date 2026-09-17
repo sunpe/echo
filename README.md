@@ -154,11 +154,11 @@ echo 不负责 Codex/ChatGPT 登录；本地和远程 app-server 均由用户自
     "local_tools": {
         "enabled": [
             "pwd", "list", "stat", "read", "search",
-            "write", "create"
+            "write", "create", "execute"
         ],
         "auto_approve": ["pwd", "list", "stat", "read", "search"],
-        "always_confirm": ["write", "create"],
-        "max_read_bytes": 1048576,
+        "always_confirm": ["write", "create", "execute"],
+        "max_read_bytes": 3145728,
         "max_output_bytes": 1048576
     },
     "share_workspace_folders": true

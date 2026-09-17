@@ -37,6 +37,23 @@ def normalize_codex_model(model: Optional[str]) -> Optional[str]:
     return model
 
 
+def _thread_not_found(error: Exception) -> bool:
+    if not isinstance(error, CodexRPCError) or error.method != "thread/resume":
+        return False
+    detail = str(error.error).lower().replace("_", " ").replace("-", " ")
+    subjects = ("thread", "session", "conversation")
+    missing_phrases = tuple(
+        "{} {}".format(prefix, subject)
+        for subject in subjects
+        for prefix in ("unknown", "no such")
+    ) + tuple(
+        "{} {}".format(subject, suffix)
+        for subject in subjects
+        for suffix in ("not found", "does not exist")
+    ) + tuple("{}notfound".format(subject) for subject in subjects)
+    return any(phrase in detail for phrase in missing_phrases)
+
+
 async def _app_server_rpc(
     connection: Dict[str, Any], method: str, params: Dict[str, Any]
 ) -> Any:
@@ -227,6 +244,7 @@ class CodexAgent(CodexProtocolHandlersMixin, BaseAgent):
                     "threadId": self.thread_id,
                     "approvalPolicy": "untrusted",
                     "sandbox": "read-only",
+                    "config": self._thread_config(),
                 }
                 if self.options.model:
                     params["model"] = self.options.model
@@ -295,16 +313,18 @@ class CodexAgent(CodexProtocolHandlersMixin, BaseAgent):
         self._read_task = asyncio.create_task(self._read_messages())
         LOG.info("Connected to Codex app-server")
 
+    def _thread_config(self):
+        config = {"model_reasoning_summary": "detailed"}
+        if "AskUserQuestion" in set(self.options.disallowed_tools or ()):
+            config["features.default_mode_request_user_input"] = False
+        return config
+
     def _thread_request(self):
-        params = {}
+        params = {"config": self._thread_config()}
         if self.options.session_id:
             params["threadId"] = self.options.session_id
         if self.options.model:
             params["model"] = self.options.model
-        if "AskUserQuestion" in set(self.options.disallowed_tools or ()):
-            params["config"] = {
-                "features.default_mode_request_user_input": False
-            }
         params.update({
             "approvalPolicy": "untrusted",
             "sandbox": "read-only",
@@ -381,8 +401,22 @@ class CodexAgent(CodexProtocolHandlersMixin, BaseAgent):
             self._model_task = asyncio.create_task(self._fetch_models())
             await self._refresh_developer_instructions()
             method, params = self._thread_request()
-            result = await self._request_thread(method, params)
+            missing_thread_id = None
+            try:
+                result = await self._request_thread(method, params)
+            except CodexRPCError as exc:
+                if not _thread_not_found(exc):
+                    raise
+                missing_thread_id = self.options.session_id
+                self.options.session_id = None
+                method, params = self._thread_request()
+                result = await self._request_thread(method, params)
             self._accept_thread(method, result)
+            if missing_thread_id:
+                await self._publish(Message("thread_fallback", {
+                    "missing_session_id": missing_thread_id,
+                    "session_id": self.thread_id,
+                }))
             self._set_connection_state("ready")
             if prompt:
                 await self.send_message(prompt)

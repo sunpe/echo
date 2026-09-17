@@ -195,6 +195,14 @@ class ProviderWorker(threading.Thread):
         async for event in self.agent.receive_messages():
             if not self.running:
                 return
+            if getattr(event, "type", None) in (
+                "thread_started", "thread_fallback"
+            ):
+                payload = event.content \
+                    if isinstance(event.content, dict) else {}
+                session_id = payload.get("session_id")
+                if session_id:
+                    self.agent_config["session_id"] = session_id
             self._publish(event)
 
     def enqueue(self, text):

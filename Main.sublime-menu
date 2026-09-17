@@ -1,12 +1,39 @@
 [
     {
+        "id": "preferences",
+        "children": [
+            {
+                "caption": "Package Settings",
+                "mnemonic": "P",
+                "id": "package-settings",
+                "children": [
+                    {
+                        "caption": "Echo",
+                        "id": "echo-package-settings",
+                        "children": [
+                            {
+                                "caption": "Settings",
+                                "command": "echo_edit_settings"
+                            },
+                            {
+                                "caption": "Key Bindings",
+                                "command": "echo_edit_key_bindings"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    {
         "caption": "echo",
         "mnemonic": "E",
         "id": "echo-workspace",
         "children": [
             {
                 "caption": "new chat",
-                "command": "echo_chat_cli"
+                "command": "echo_chat_cli",
+                "args": {"dedicated_pane": false}
             },
             {
                 "caption": "resume chat...",
@@ -72,32 +99,6 @@
             {
                 "caption": "set key bindings",
                 "command": "echo_edit_key_bindings"
-            }
-        ]
-    },
-    {
-        "id": "preferences",
-        "children": [
-            {
-                "caption": "Package Settings",
-                "mnemonic": "P",
-                "id": "package-settings",
-                "children": [
-                    {
-                        "caption": "Echo",
-                        "id": "echo-package-settings",
-                        "children": [
-                            {
-                                "caption": "Settings",
-                                "command": "echo_edit_settings"
-                            },
-                            {
-                                "caption": "Key Bindings",
-                                "command": "echo_edit_key_bindings"
-                            }
-                        ]
-                    }
-                ]
             }
         ]
     }

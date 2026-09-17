@@ -11,6 +11,7 @@ sys.modules.setdefault("sublime", MagicMock())
 from echo.runtime.session_registry import filter_registered_sessions
 from echo.sublime_adapter.completions import MAX_DIRECTORY_COMPLETIONS, build_file_completions
 from echo.sublime_adapter.presentation.ui_components import (
+    ApproveMode,
     CHAT_APPROVE_MODE,
     CHAT_CONNECTION_STATE,
     QuestionSequence,
@@ -124,6 +125,14 @@ class ComposerControlsTest(unittest.TestCase):
             "echo_chat_interrupt", {"confirm": True}
         )
 
+    def test_reconnect_link_restarts_provider(self):
+        window = MagicMock()
+        panel = ComposerControls(MagicMock(), window)
+
+        panel.navigate("reconnect")
+
+        window.run_command.assert_called_once_with("echo_chat_reconnect")
+
     def test_connection_state_uses_success_and_failure_colors(self):
         def render(state):
             view = MagicMock()
@@ -169,6 +178,11 @@ class ComposerControlsTest(unittest.TestCase):
         self.assertIn(".connection-error{color:var(--redish)}", failed)
         self.assertIn(
             'class="state connection-error">● Unavailable</span>', failed
+        )
+        self.assertNotIn('href="reconnect"', connected)
+        self.assertIn('href="reconnect"', failed)
+        self.assertIn(
+            '● Unavailable</span>&nbsp;&nbsp;<a href="reconnect"', failed
         )
 
 class WelcomePanelTest(unittest.TestCase):
@@ -282,6 +296,61 @@ class QuestionSequenceTest(unittest.TestCase):
 
 
 class ApprovalCardEscapingTest(unittest.TestCase):
+    def test_command_approval_shows_fallback_action_cwd_and_reason(self):
+        content = ApprovalCard.content("command_execution", {
+            "command": None,
+            "commandActions": [{"command": "pdftotext large.pdf -"}],
+            "cwd": "/workspace",
+            "reason": "Extract PDF text",
+        })
+
+        self.assertIn("<b>Action:</b> Execute command", content.markup)
+        self.assertIn("pdftotext large.pdf -", content.markup)
+        self.assertIn("Working directory: /workspace", content.markup)
+        self.assertIn("Reason: Extract PDF text", content.markup)
+
+    def test_file_approval_without_preview_still_describes_action(self):
+        content = ApprovalCard.content("fileChange", {
+            "itemId": "change-1",
+            "reason": "Update generated output",
+            "grantRoot": "/workspace/output",
+        })
+
+        self.assertIn("<b>Action:</b> Modify files", content.markup)
+        self.assertIn("File preview unavailable", content.markup)
+        self.assertIn("Request: change-1", content.markup)
+        self.assertIn("Write scope: /workspace/output", content.markup)
+
+    def test_long_action_buttons_wrap_between_buttons_not_inside_text(self):
+        rendered = ApprovalCard.render(
+            "request-1",
+            "command_execution",
+            ApprovalCard.content("command_execution", {"command": "pwd"}),
+            ApproveMode.DEFAULT.value,
+        )
+
+        self.assertIn('class="secondary-action"', rendered)
+        self.assertIn("white-space:nowrap", rendered)
+        self.assertIn("white-space:pre-wrap", rendered)
+        self.assertNotIn("word-wrap", rendered)
+        self.assertNotIn("<section", rendered)
+        self.assertNotIn("<nav", rendered)
+        self.assertIn('<div class="content">', rendered)
+
+    def test_actions_use_theme_visible_foreground_and_tinted_backgrounds(self):
+        rendered = ApprovalCard.render(
+            "request-1",
+            "command_execution",
+            ApprovalCard.content("command_execution", {"command": "pwd"}),
+        )
+
+        self.assertIn(".card{margin:10px 0;padding:10px;color:var(--foreground);", rendered)
+        self.assertIn(".actions a{display:inline-block", rendered)
+        self.assertIn("color:var(--foreground);white-space:nowrap", rendered)
+        self.assertIn("color(var(--greenish) alpha(.15))", rendered)
+        self.assertIn("color(var(--redish) alpha(.15))", rendered)
+        self.assertNotIn("color:var(--background)", rendered)
+
     def test_plan_and_tool_name_are_escaped(self):
         display = ApprovalCard.content(
             "CodexImplementPlan",

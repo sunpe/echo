@@ -7,6 +7,7 @@ from functools import partial
 import sublime
 
 from .md_render import MarkdownFormatter
+from .ui_components import get_input_start
 
 
 _HUNK_START = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)", re.MULTILINE)
@@ -18,13 +19,89 @@ class TranscriptSurface:
     def __init__(self, view):
         self._view = view
 
-    def append(self, text):
+    def append(self, text, on_commit=None):
         if text:
-            sublime.set_timeout(partial(self._commit, text), 0)
+            sublime.set_timeout(partial(self._commit, text, on_commit), 0)
 
-    def _commit(self, text):
+    def _commit(self, text, on_commit=None):
+        start = get_input_start(self._view, 0) - 1
         command, arguments = "echo_chat_output_append", {"text": text}
         self._view.run_command(command, arguments)
+        if on_commit is not None:
+            on_commit(start, start + len(text))
+
+    def fold(self, start, end):
+        self._view.fold(sublime.Region(start, end))
+
+
+class ReasoningTranscript:
+    """Stream reasoning summaries and fold each completed summary body."""
+
+    def __init__(self, surface):
+        self._surface = surface
+        self._items = {}
+
+    def delta(self, item_id, text):
+        if not text:
+            return
+        state = self._state(item_id)
+        self._open(state)
+        state["text"] += text
+        self._surface.append(text)
+
+    def complete(self, item_id, text):
+        state = self._state(item_id)
+        if state["finished"]:
+            return
+        text = text or ""
+        if not state["text"] and text:
+            self._open(state)
+            state["text"] = text
+            self._surface.append(text)
+        elif text.startswith(state["text"]):
+            suffix = text[len(state["text"]):]
+            if suffix:
+                state["text"] += suffix
+                self._surface.append(suffix)
+        self._finish(state)
+
+    def finish_all(self):
+        for state in self._items.values():
+            self._finish(state)
+
+    def reset(self):
+        self._items = {}
+
+    def _state(self, item_id):
+        key = item_id or "active"
+        return self._items.setdefault(key, {
+            "text": "",
+            "body_start": None,
+            "opened": False,
+            "finished": False,
+        })
+
+    def _open(self, state):
+        if state["opened"]:
+            return
+        state["opened"] = True
+
+        def remember_body_start(_start, end):
+            state["body_start"] = end
+
+        self._surface.append("\n◇ 思考摘要\n\n", remember_body_start)
+
+    def _finish(self, state):
+        if not state["opened"] or state["finished"]:
+            return
+        state["finished"] = True
+
+        def fold_body(start, _end):
+            body_start = state["body_start"]
+            if body_start is not None and start > body_start:
+                self._surface.fold(body_start, start)
+
+        self._surface.append("\n\n", fold_body)
 
 
 class ToolTranscript:
@@ -81,9 +158,11 @@ class TranscriptWriter:
         self._reply_open = False
         self._last_was_tool = False
         self.tools = ToolTranscript(self._cwd_provider)
+        self.reasoning = ReasoningTranscript(self._surface)
 
     def reset_turn(self):
         self._reply_open = False
+        self.reasoning.reset()
 
     def begin_reply(self):
         if not self._reply_open:
@@ -96,6 +175,9 @@ class TranscriptWriter:
 
     def error(self, detail):
         self._surface.append("\n\nError: {}\n".format(detail))
+
+    def notice(self, detail):
+        self._surface.append("\n\n⚠️ {}\n\n".format(detail))
 
     def assistant(self, blocks):
         pieces = [block.text for block in blocks if hasattr(block, "text")]
@@ -114,5 +196,6 @@ class TranscriptWriter:
         self.write(self.tools.format(payload) + "\n")
 
     def finish(self):
+        self.reasoning.finish_all()
         self.write("", flush=True)
         self.write("\n")

@@ -26,7 +26,7 @@ class SublimeWorkspaceTools:
         roots: Iterable[str],
         enabled: Iterable[str],
         denied_globs=None,
-        max_read_bytes: int = 1024 * 1024,
+        max_read_bytes: int = 3 * 1024 * 1024,
         max_output_bytes: int = 1024 * 1024,
         on_file_change=None,
     ):

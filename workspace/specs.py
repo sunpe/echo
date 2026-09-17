@@ -9,7 +9,7 @@ DEFAULT_DENIED_GLOBS = (
     ".git/**", "**/.git/**",
 )
 DEFAULT_ENABLED_TOOLS = (
-    "pwd", "list", "stat", "read", "search", "write", "create",
+    "pwd", "list", "stat", "read", "search", "write", "create", "execute",
 )
 
 
@@ -110,6 +110,23 @@ def dynamic_tool_specs(enabled: Iterable[str]) -> List[Dict[str, Any]]:
                     "content": {"type": "string"},
                 },
                 "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        ),
+        "execute": (
+            "Run a shell command locally in a workspace directory. Requires approval.",
+            {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "minLength": 1},
+                    "root": {"type": "string", "default": "root-1"},
+                    "path": {"type": "string", "default": "."},
+                    "timeoutSeconds": {
+                        "type": "integer", "minimum": 1, "maximum": 120,
+                        "default": 120,
+                    },
+                },
+                "required": ["command"],
                 "additionalProperties": False,
             },
         ),

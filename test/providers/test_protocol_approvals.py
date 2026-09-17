@@ -21,12 +21,28 @@ class ProtocolApprovalTest(unittest.IsolatedAsyncioTestCase):
             return_value={"files": ["one.py"]}
         )
 
-        await agent._handle_command_approval(10, {"command": "pwd"})
+        await agent._handle_command_approval(10, {
+            "command": None,
+            "commandActions": [{"type": "read", "command": "pdftotext 1.pdf -"}],
+            "cwd": "/workspace",
+            "reason": "Extract PDF text",
+        })
         await agent._handle_file_approval(11, {"itemId": "change-1"})
 
         self.assertEqual(
             ["command_execution", "fileChange"],
             [call.args[1] for call in agent._approvals.ask.await_args_list],
+        )
+        self.assertEqual(
+            {
+                "command": None,
+                "commandActions": [{
+                    "type": "read", "command": "pdftotext 1.pdf -",
+                }],
+                "cwd": "/workspace",
+                "reason": "Extract PDF text",
+            },
+            agent._approvals.ask.await_args_list[0].args[2],
         )
         self.assertEqual(
             {"processed_diff": {"files": ["one.py"]}, "itemId": "change-1"},

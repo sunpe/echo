@@ -15,6 +15,7 @@ class MessageType(Enum):
     ERROR = "error"
     STOP = "stop"
     THINKING = "thinking"
+    THINKING_DELTA = "thinking_delta"
     PLAN_DELTA = "plan_delta"
 
 

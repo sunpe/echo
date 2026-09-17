@@ -98,6 +98,7 @@ class ComposerControls:
             "approve": "echo_chat_set_approve_mode",
             "stop": "echo_chat_interrupt",
             "stop_conversation": "echo_chat_interrupt",
+            "reconnect": "echo_chat_reconnect",
         }.get(target)
         if command:
             arguments = {"confirm": True} \
@@ -138,6 +139,10 @@ class ComposerControls:
         stop_control = self.status_hint.render()
         if stop_control:
             stop_control = "&nbsp;" + stop_control
+        reconnect_control = (
+            '&nbsp;&nbsp;<a href="reconnect" class="reconnect">Reconnect</a>'
+            if values["can_reconnect"] else ""
+        )
         markup = (
             '<body id="echo-composer"><style>'
             '.panel{{margin:2px 0 3px;padding:8px 2px 6px;'
@@ -148,6 +153,7 @@ class ComposerControls:
             '.state{{font-size:.8em;font-weight:600}}'
             '.connection-ok{{color:var(--greenish)}}'
             '.connection-error{{color:var(--redish)}}'
+            '.reconnect{{font-size:.8em;text-decoration:none}}'
             '.actions{{margin-bottom:7px}}'
             '.chip{{display:inline-block;margin-bottom:4px;padding:4px 7px;'
             'text-decoration:none;border:1px solid '
@@ -159,10 +165,16 @@ class ComposerControls:
             '</style><div class="panel">'
             '<div class="status-row"><span class="source">{provider}'
             '&nbsp;&nbsp;·&nbsp;&nbsp;{endpoint}</span>'
-            '&nbsp;&nbsp;<span class="state {state_class}">● {state_label}</span></div>'
+            '&nbsp;&nbsp;<span class="state {state_class}">● {state_label}</span>'
+            '{reconnect}</div>'
             '<div class="actions">{controls}{stop}</div>'
             '</div></body>'
-        ).format(controls=controls, stop=stop_control, **values)
+        ).format(
+            controls=controls,
+            stop=stop_control,
+            reconnect=reconnect_control,
+            **values
+        )
         point = get_input_start(self.view)
         self.phantom_set.update([sublime.Phantom(
             sublime.Region(point, point), markup, sublime.LAYOUT_BLOCK,
@@ -206,6 +218,7 @@ class ComposerControls:
             )),
             "state_class": "connection-ok" if normalized_state in _CONNECTED_STATES
             else "connection-error",
+            "can_reconnect": normalized_state in ("failed", "disconnected"),
             "model": model or "default",
             "plan": "On" if plan is PlanMode.PLANNING else "Off",
             "approve": _APPROVAL_LABELS.get(approve.value, approve.value),

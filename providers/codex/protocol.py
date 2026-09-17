@@ -19,6 +19,9 @@ _NOTIFICATION_ROUTES = {
     "turn/completed": "_event_turn_completed",
     "item/plan/delta": "_event_plan_delta",
     "item/agentMessage/delta": "_event_message_delta",
+    "item/reasoning/summaryPartAdded": "_event_reasoning_summary_part",
+    "item/reasoning/summaryTextDelta": "_event_reasoning_summary_delta",
+    "item/reasoning/textDelta": "_event_reasoning_summary_delta",
     "item/completed": "_handle_item_completed",
     "item/started": "_handle_item_started",
     "codex/event/stream_error": "_event_stream_error",
@@ -95,11 +98,17 @@ def _mcp_call_completed(item):
 
 
 def _reasoning_completed(item):
-    summary = item.get("summary") or []
-    if isinstance(summary, list):
-        text = summary[0] if summary else ""
+    reasoning = item.get("summary") or item.get("content") or []
+    if isinstance(reasoning, list):
+        parts = []
+        for part in reasoning:
+            if isinstance(part, dict):
+                parts.append(part.get("text", ""))
+            else:
+                parts.append(str(part))
+        text = "\n\n".join(part for part in parts if part)
     else:
-        text = str(summary)
+        text = str(reasoning)
     if not text:
         return None
     return Message(
@@ -224,6 +233,27 @@ class CodexProtocolHandlersMixin:
                 id=params.get("itemId"),
             ))
 
+    async def _event_reasoning_summary_delta(
+        self, params: Dict[str, Any]
+    ) -> None:
+        text = params.get("delta", "")
+        if text:
+            await self._publish(Message(
+                MessageType.THINKING_DELTA.value,
+                text,
+                id=params.get("itemId"),
+            ))
+
+    async def _event_reasoning_summary_part(
+        self, params: Dict[str, Any]
+    ) -> None:
+        if params.get("summaryIndex", 0) > 0:
+            await self._publish(Message(
+                MessageType.THINKING_DELTA.value,
+                "\n\n",
+                id=params.get("itemId"),
+            ))
+
     async def _event_stream_error(self, params: Dict[str, Any]) -> None:
         detail = params.get("msg", {})
         if isinstance(detail, dict):
@@ -274,7 +304,7 @@ class CodexProtocolHandlersMixin:
             namespace = params.get("namespace") or ""
             if not namespace and tool_name in self._dynamic_tool_aliases:
                 namespace, tool_name = self._dynamic_tool_aliases[tool_name]
-            if tool_name in self.options.local_tools_require_approval:
+            if tool_name == "execute" or tool_name in self.options.local_tools_require_approval:
                 approved = await self._approvals.ask(
                     "dynamic:" + call_id,
                     "local_workspace." + tool_name,
@@ -346,13 +376,13 @@ class CodexProtocolHandlersMixin:
         LOG.info(
             "Command approval request [rpc_id=%s, command_chars=%d, cwd_set=%s]",
             request_id,
-            len(params.get("command", "")),
+            len(params.get("command") or ""),
             bool(params.get("cwd")),
         )
         await self._finish_approval(
             request_id,
             "command_execution",
-            {"command": params.get("command", "")},
+            dict(params),
         )
 
     async def _handle_file_approval(self, request_id: Any, params: Dict[str, Any]) -> None:

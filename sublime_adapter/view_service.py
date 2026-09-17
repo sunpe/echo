@@ -21,10 +21,10 @@ class ChatViewService:
         self.window = window
         self.context = EchoWindowContext(window)
 
-    def reconnect(self, view):
+    def reconnect(self, view, dedicated_pane=None):
         if self.context.session is not None:
             return self.context.session
-        self._present(view)
+        self._present(view, dedicated_pane=dedicated_pane)
         roots = self._shared_roots(view)
         session = create_chat_session(
             self.window,
@@ -39,12 +39,12 @@ class ChatViewService:
         sublime.status_message("Echo reconnected")
         return session
 
-    def open(self, initial_text=""):
+    def open(self, initial_text="", dedicated_pane=False):
         existing = self.context.echo_view()
         if existing is not None:
-            self._present(existing)
+            self._present(existing, dedicated_pane=dedicated_pane)
             if self.context.session is None:
-                self.reconnect(existing)
+                self.reconnect(existing, dedicated_pane=dedicated_pane)
             if initial_text:
                 existing.run_command(
                     "echo_chat_input_prompt", {"text": initial_text}
@@ -53,7 +53,7 @@ class ChatViewService:
 
         transcript = self.window.new_file()
         self._configure(transcript)
-        self._present(transcript)
+        self._present(transcript, dedicated_pane=dedicated_pane)
         cwd = get_best_dir(transcript)
         set_input_start(transcript, transcript.size())
         session = create_chat_session(
@@ -68,9 +68,11 @@ class ChatViewService:
         )
         return transcript
 
-    def _present(self, view):
+    def _present(self, view, dedicated_pane=None):
         settings = sublime.load_settings("echo.sublime-settings")
-        if settings.get("dedicated_chat_pane", True):
+        if dedicated_pane is None:
+            dedicated_pane = settings.get("dedicated_chat_pane", True)
+        if dedicated_pane:
             place_in_dedicated_pane(self.window, view)
         else:
             self.window.focus_view(view)
